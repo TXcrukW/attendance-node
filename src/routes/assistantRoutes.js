@@ -8,6 +8,7 @@ router.get('/', protect, controller.listAssistants);
 router.get('/stats', protect, controller.stats);
 router.post('/import', protect, controller.bulkImport);
 router.post('/', protect, controller.createAssistant);
+router.post('/:id/reset-password', protect, controller.resetPassword);
 router.get('/:id', protect, controller.getAssistant);
 router.put('/:id', protect, controller.updateAssistant);
 router.delete('/:id', protect, controller.deleteAssistant);

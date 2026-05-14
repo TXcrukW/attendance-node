@@ -15,8 +15,8 @@ const POSITION_LEVEL_MAPPING = {
  */
 function validateStudentId(studentId) {
   if (!studentId || typeof studentId !== 'string') return false;
-  // 学号通常为 8-12 位数字或字母
-  return /^[A-Za-z0-9]{8,12}$/.test(studentId.trim());
+  // 要求学号为 10 位数字
+  return /^\d{10}$/.test(studentId.trim());
 }
 
 /**
@@ -27,8 +27,8 @@ function validateStudentId(studentId) {
 function validateName(name) {
   if (!name || typeof name !== 'string') return false;
   const trimmed = name.trim();
-  // 允许中文、英文、数字和空格，长度 2-50
-  return /^[\u4E00-\u9FA5a-zA-Z0-9\s]{2,50}$/.test(trimmed);
+  // 允许中文、英文、数字和空格，长度 2-10（不超过 10 位）
+  return /^[\u4E00-\u9FA5a-zA-Z0-9\s]{2,10}$/.test(trimmed);
 }
 
 /**
@@ -52,16 +52,7 @@ function validatePositionLevel(positionLevel) {
   return positionLevel.trim() in POSITION_LEVEL_MAPPING;
 }
 
-/**
- * 验证邮箱
- * @param {string} email - 邮箱
- * @returns {boolean}
- */
-function validateEmail(email) {
-  if (!email || typeof email !== 'string') return false;
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email.trim());
-}
+// email 字段已移除，相关验证逻辑不再需要
 
 /**
  * 验证单条学助数据（单个添加）
@@ -73,15 +64,15 @@ function validateAssistantData(data) {
 
   // 必填字段验证
   if (!validateStudentId(data.studentId)) {
-    errors.push('studentId 格式不正确（应为 8-12 位字母或数字）');
+    errors.push('studentId 格式不正确（应为 10 位数字）');
   }
 
   if (!validateName(data.name)) {
-    errors.push('name 格式不正确（应为 2-50 个字符）');
+    errors.push('name 格式不正确（应为 2-10 个字符）');
   }
 
   if (!validatePhone(data.phone)) {
-    errors.push('phone 格式不正确（应为有效的中国手机号）');
+    errors.push('phone 格式不正确（应为有效的中国手机号，11 位）');
   }
 
   if (!validatePositionLevel(data.positionLevel)) {
@@ -89,9 +80,7 @@ function validateAssistantData(data) {
   }
 
   // 可选字段验证
-  if (data.email && !validateEmail(data.email)) {
-    errors.push('email 格式不正确');
-  }
+  
 
   return {
     valid: errors.length === 0,
@@ -125,24 +114,22 @@ function validateBatchData(data) {
     const rowNumber = index + 1;
 
     if (!validateStudentId(row.studentId)) {
-      errors.push(`第 ${rowNumber} 行：studentId 格式不正确`);
+      errors.push(`第 ${rowNumber} 行：studentId 格式不正确（应为 10 位数字）`);
     }
 
     if (!validateName(row.name)) {
-      errors.push(`第 ${rowNumber} 行：name 格式不正确`);
+      errors.push(`第 ${rowNumber} 行：name 格式不正确（长度应为 2-10）`);
     }
 
     if (!validatePhone(row.phone)) {
-      errors.push(`第 ${rowNumber} 行：phone 格式不正确`);
+      errors.push(`第 ${rowNumber} 行：phone 格式不正确（应为 11 位有效手机号）`);
     }
 
     if (!validatePositionLevel(row.positionLevel)) {
       errors.push(`第 ${rowNumber} 行：positionLevel 无效`);
     }
 
-    if (row.email && !validateEmail(row.email)) {
-      errors.push(`第 ${rowNumber} 行：email 格式不正确`);
-    }
+    // email 字段已移除；不再进行邮箱格式校验
   });
 
   return {
@@ -174,7 +161,6 @@ function normalizeAssistantData(rawData) {
     studentId: rawData.studentId.trim(),
     name: rawData.name.trim(),
     phone: rawData.phone.trim(),
-    email: rawData.email ? rawData.email.trim() : null,
     position,
     hourlyRate,
     status: 'active',
@@ -188,7 +174,6 @@ module.exports = {
   validateName,
   validatePhone,
   validatePositionLevel,
-  validateEmail,
   validateAssistantData,
   validateBatchData,
   convertPositionLevel,

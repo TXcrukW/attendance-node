@@ -14,7 +14,6 @@ exports.listAssistants = async (req, res) => {
         { studentId: { [Op.iLike]: `%${search}%` } },
         { name: { [Op.iLike]: `%${search}%` } },
         { phone: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
       ];
     }
     if (status) where.status = status;
@@ -46,7 +45,6 @@ exports.listAssistants = async (req, res) => {
         isOnDuty: Boolean(p.isOnDuty),
         status: p.status,
         phone: p.phone,
-        email: p.email,
         // hourlyRate 保持字符串形式以避免精度问题
         hourlyRate: p.hourlyRate != null ? String(p.hourlyRate) : '0.00',
         // totalHours 统一为数字
@@ -87,7 +85,6 @@ exports.getAssistant = async (req, res) => {
       isOnDuty: Boolean(p.isOnDuty),
       status: p.status,
       phone: p.phone,
-      email: p.email,
       hourlyRate: p.hourlyRate != null ? String(p.hourlyRate) : '0.00',
       totalHours: p.totalHours != null ? Number(p.totalHours) : 0,
       createdAt: p.createdAt,
@@ -110,7 +107,6 @@ exports.createAssistant = async (req, res) => {
       name,
       phone,
       positionLevel,
-      email,
       notes,
     } = req.body;
 
@@ -126,7 +122,6 @@ exports.createAssistant = async (req, res) => {
       name,
       phone,
       positionLevel,
-      email,
       notes,
     });
 
@@ -152,12 +147,35 @@ exports.createAssistant = async (req, res) => {
       name,
       phone,
       positionLevel,
-      email,
       notes,
     });
 
-    // 创建学助
-    const assistant = await Assistant.create(normalizedData);
+    // 创建学助（同时在 accounts 表创建对应账户）
+    const Account = require('../models/accountModel');
+
+    const transaction = await sequelize.transaction();
+    let assistant;
+    try {
+      assistant = await Assistant.create(normalizedData, { transaction });
+
+      // 默认密码为学号后六位
+      const sid = normalizedData.studentId || '';
+      const defaultPwd = sid.slice(-6) || '000000';
+
+      // 在 accounts 表创建账户（若用户名已存在则回滚并报错）
+      const existingAcc = await Account.findOne({ where: { username: normalizedData.studentId }, transaction });
+      if (existingAcc) {
+        await transaction.rollback();
+        return res.status(409).json({ message: '对应账户已存在，无法创建学助' });
+      }
+
+      await Account.create({ assistantId: assistant.id, username: normalizedData.studentId, password: defaultPwd }, { transaction });
+
+      await transaction.commit();
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
 
     // 返回标准格式
     const p = assistant.get({ plain: true });
@@ -168,7 +186,7 @@ exports.createAssistant = async (req, res) => {
       phone: p.phone,
       position: p.position,
       hourlyRate: String(p.hourlyRate),
-      email: p.email,
+      
       status: p.status,
       isOnDuty: Boolean(p.isOnDuty),
       notes: p.notes,
@@ -202,8 +220,19 @@ exports.deleteAssistant = async (req, res) => {
     const { id } = req.params;
     const assistant = await Assistant.findByPk(id);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
+    // 同步删除/禁用对应的 account（优先软删除：设置 isActive = false）
+    try {
+      const Account = require('../models/accountModel');
+      const acc = await Account.findOne({ where: { assistantId: assistant.id } });
+      if (acc) {
+        await acc.update({ isActive: false });
+      }
+    } catch (e) {
+      console.error('同步禁用 account 失败', e.message || e);
+    }
+
     await assistant.destroy();
-    res.json({ message: '已删除' });
+    res.json({ message: '已删除（学助数据已删除，账户已禁用）' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '删除学助失败' });
@@ -410,11 +439,33 @@ exports.setOnDuty = async (req, res) => {
       isOnDuty: Boolean(p.isOnDuty),
       status: p.status,
       phone: p.phone,
-      email: p.email,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '更新在岗状态失败' });
+  }
+};
+
+// 管理员重置学助密码（将账户密码设置为学号后六位，并标记 forceChangePassword）
+exports.resetPassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const assistant = await Assistant.findByPk(id);
+    if (!assistant) return res.status(404).json({ message: '未找到学助' });
+
+    const Account = require('../models/accountModel');
+    const acc = await Account.findOne({ where: { assistantId: assistant.id } });
+    if (!acc) return res.status(404).json({ message: '未找到对应账户' });
+
+    const sid = assistant.studentId || '';
+    const defaultPwd = sid.slice(-6) || '000000';
+
+    await acc.update({ password: defaultPwd, forceChangePassword: true });
+
+    res.json({ message: '密码已重置为学号后六位（已强制下次修改）' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: '重置密码失败', error: err.message });
   }
 };
 

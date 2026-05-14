@@ -5,6 +5,7 @@ const { connectDB, sequelize } = require('./config/db');
 const userRoutes = require('./modules/frontend/routes/userRoutes');
 const adminRoutes = require('./modules/admin/routes/adminRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 // 加载环境变量
 dotenv.config();
@@ -33,6 +34,7 @@ app.use(express.json()); // 解析 JSON 格式请求体
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/assistants', assistantRoutes);
+app.use('/api/auth', authRoutes);
 
 // 根路由测试
 app.get('/', (req, res) => {

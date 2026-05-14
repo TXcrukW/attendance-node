@@ -33,7 +33,6 @@ const Assistant = sequelize.define('Assistant', {
     defaultValue: 'active',
   },
   phone: DataTypes.STRING,
-  email: DataTypes.STRING,
   notes: DataTypes.TEXT,
 }, {
   timestamps: true,

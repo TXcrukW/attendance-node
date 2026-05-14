@@ -94,8 +94,6 @@ function mapFieldNames(row, mapping = {}) {
     '等级': 'positionLevel',
     'PositionLevel': 'positionLevel',
     'position_level': 'positionLevel',
-    '邮箱': 'email',
-    'Email': 'email',
     '备注': 'notes',
     'Notes': 'notes',
     '说明': 'notes',

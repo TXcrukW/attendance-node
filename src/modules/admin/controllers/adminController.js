@@ -12,9 +12,13 @@ const generateToken = (id) => {
 const loginAdmin = async (req, res) => {
   const { username, password } = req.body;
   try {
+    if (!username || !password) {
+      return res.status(400).json({ message: '用户名和密码为必填项' });
+    }
     const admin = await AdminUser.findOne({ where: { username } });
     if (admin && (await admin.matchPassword(password))) {
       res.json({
+        status: 'success',
         id: admin.id,
         username: admin.username,
         role: admin.role,

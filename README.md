@@ -2,6 +2,12 @@
 
 本项目是校园考勤系统的后端部分，采用 Node.js 构建，旨在为前端（Vue 框架）提供稳定、安全的 API 服务。
 
+## API 端点
+
+- **管理后台 API**: [管理后台 API 文档](API.md) — 包含管理员登录（POST /api/admin/login）与获取资料（GET /api/admin/profile）等接口说明、请求示例与响应示例。
+
+你可以在 GitHub 仓库主页直接点击上方链接查看完整端点文档。
+
 ## 技术栈
 
 - **Runtime**: Node.js (推荐版本: v18+)

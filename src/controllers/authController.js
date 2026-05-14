@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 const Account = require('../db/models/accountModel');
 
 const generateToken = (payload) => {
@@ -17,7 +18,11 @@ const login = async (req, res) => {
     const match = await account.matchPassword(password);
     if (!match) return res.status(401).json({ message: '学号或密码不正确' });
 
-    const payload = { accountId: account.id, assistantId: account.assistantId, username: account.username };
+    // 生成新的会话 id（sid），写入账户，使旧 token 失效
+    const sid = uuidv4();
+    await account.update({ currentSessionId: sid });
+
+    const payload = { accountId: account.id, assistantId: account.assistantId, username: account.username, sid };
     res.json({ id: account.id, username: account.username, assistantId: account.assistantId, token: generateToken(payload) });
   } catch (err) {
     console.error(err);

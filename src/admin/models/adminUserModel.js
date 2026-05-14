@@ -21,6 +21,11 @@ const AdminUser = sequelize.define('AdminUser', {
     type: DataTypes.ENUM('admin'),
     defaultValue: 'admin',
   },
+  // 当前会话 ID，用于只认可最新分发的 token
+  currentSessionId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
 }, {
   timestamps: true,
   hooks: {

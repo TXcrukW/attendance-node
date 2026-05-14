@@ -29,6 +29,11 @@ const Account = sequelize.define('Account', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // 当前会话 ID，用于只认可最新分发的 token
+  currentSessionId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
 }, {
   timestamps: true,
   hooks: {

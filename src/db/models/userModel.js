@@ -21,6 +21,11 @@ const User = sequelize.define('User', {
     type: DataTypes.ENUM('student', 'teacher', 'admin'),
     defaultValue: 'student',
   },
+  // 当前会话 ID，用于只认可最新分发的 token
+  currentSessionId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
 }, {
   timestamps: true,
   hooks: {

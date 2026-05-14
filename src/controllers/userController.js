@@ -2,8 +2,10 @@ const jwt = require('jsonwebtoken');
 const User = require('../db/models/userModel');
 
 // 生成 JWT Token
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+const { v4: uuidv4 } = require('uuid');
+
+const generateToken = (payload) => {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN,
   });
 };
@@ -18,11 +20,15 @@ const loginUser = async (req, res) => {
     const user = await User.findOne({ where: { username } });
 
     if (user && (await user.matchPassword(password))) {
+      // 生成新的会话 id，并保存到用户表，使旧 token 失效
+      const sid = uuidv4();
+      await user.update({ currentSessionId: sid });
+
       res.json({
         id: user.id,
         username: user.username,
         role: user.role,
-        token: generateToken(user.id),
+        token: generateToken({ id: user.id, sid }),
       });
     } else {
       res.status(401).json({ message: '用户名或密码无效' });

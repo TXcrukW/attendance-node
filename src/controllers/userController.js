@@ -15,14 +15,14 @@ const loginUser = async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ where: { username } });
 
     if (user && (await user.matchPassword(password))) {
       res.json({
-        _id: user._id,
+        id: user.id,
         username: user.username,
         role: user.role,
-        token: generateToken(user._id),
+        token: generateToken(user.id),
       });
     } else {
       res.status(401).json({ message: '用户名或密码无效' });
@@ -37,7 +37,9 @@ const loginUser = async (req, res) => {
 // @access  Private
 const getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['password'] }
+    });
     if (user) {
       res.json(user);
     } else {

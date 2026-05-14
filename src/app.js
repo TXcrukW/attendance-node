@@ -1,14 +1,17 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const { connectDB, sequelize } = require('./config/db');
 const userRoutes = require('./routes/userRoutes');
 
 // 加载环境变量
 dotenv.config();
 
-// 连接数据库
+// 连接数据库并同步模型
 connectDB();
+sequelize.sync({ alter: true }).then(() => {
+  console.log('Database & tables created/updated!');
+});
 
 const app = express();
 

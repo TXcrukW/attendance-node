@@ -1,16 +1,21 @@
-const mongoose = require('mongoose');
+const { Sequelize } = require('sequelize');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: 'postgres',
+  logging: false, // 设置为 true 可以查看生成的 SQL 语句
+});
+
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attendance_system');
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    await sequelize.authenticate();
+    console.log('PostgreSQL Connected successfully.');
   } catch (error) {
-    console.error(`Error: ${error.message}`);
+    console.error('Unable to connect to the database:', error);
     process.exit(1);
   }
 };
 
-module.exports = connectDB;
+module.exports = { sequelize, connectDB };

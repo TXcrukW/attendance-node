@@ -2,16 +2,25 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const { connectDB, sequelize } = require('./config/db');
-const userRoutes = require('./routes/userRoutes');
+const userRoutes = require('./modules/frontend/routes/userRoutes');
+const adminRoutes = require('./modules/admin/routes/adminRoutes');
 
 // 加载环境变量
 dotenv.config();
 
-// 连接数据库并同步模型
-connectDB();
-sequelize.sync({ alter: true }).then(() => {
-  console.log('Database & tables created/updated!');
-});
+// 连接数据库并同步模型（不阻塞主线程，失败时会在后台重试）
+connectDB()
+  .then(async () => {
+    try {
+      await sequelize.sync({ alter: true });
+      console.log('Database & tables created/updated!');
+    } catch (err) {
+      console.error('Error syncing database models:', err.message || err);
+    }
+  })
+  .catch((err) => {
+    console.error('connectDB error (will retry in background):', err && err.message ? err.message : err);
+  });
 
 const app = express();
 
@@ -21,6 +30,7 @@ app.use(express.json()); // 解析 JSON 格式请求体
 
 // 路由
 app.use('/api/users', userRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 根路由测试
 app.get('/', (req, res) => {

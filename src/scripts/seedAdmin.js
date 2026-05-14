@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { sequelize, connectDB } = require('../config/db');
-const AdminUser = require('../modules/admin/models/adminUserModel');
+const AdminUser = require('../admin/models/adminUserModel');
 
 async function seed() {
   try {

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Account = require('../db/models/accountModel');
+const Account = require('../../db/models/accountModel');
 
 const generateToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });

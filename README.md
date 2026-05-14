@@ -6,34 +6,35 @@
 
 - 入口：`src/app.js` — 应用初始化、路由挂载与中间件配置。
 - 配置：`src/config/db.js` — 数据库连接（Sequelize）与重连策略。
-- 权限与鉴权：`src/middleware/authMiddleware.js` — JWT 验证与权限守卫。
+- 权限与鉴权：`src/common/middleware/authMiddleware.js` — JWT 验证与权限守卫。
 
 ## 各模块与文件说明（简要）
 
 - `src/app.js`：应用主入口，配置中间件（bodyParser、CORS、日志）、全局错误处理，并挂载各模块路由。
 - `src/config/db.js`：Sequelize 数据库配置、连接初始化与重试/重连逻辑，封装导出供模型使用。
 
-- `src/controllers/assistantController.js`：助教/考勤助手相关的请求处理逻辑（如注册、状态查询等接口）。
-- `src/controllers/userController.js`：通用用户相关控制器（用户登录、获取资料等），供顶层或模块路由使用。
 
-- `src/middleware/authMiddleware.js`：解析 `Authorization` 头、验证 JWT、在请求中注入用户信息并控制受保护路由访问。
+- 控制器（主要入口）：`src/app.js` 挂载以下路由与控制器。
 
-- `src/models/assistantModel.js`：助教/设备等主体的数据模型定义（Sequelize model）。
-- `src/models/assistantTimeLog.js`：记录助教或设备时间线/打卡记录的模型（考勤日志）。
-- `src/models/userModel.js`：用户（学生/教师/管理员）数据模型，包含认证字段与权限字段。
+- 管理后台（Admin）：
+	- `src/admin/controllers/*` — 管理后台控制器（管理员登录、管理操作）。
+	- `src/admin/models/*` — 管理后台专用模型（如 `adminUserModel.js`）。
+	- `src/admin/routes/*` — 管理后台路由（通常挂载到 `/api/admin`）。
 
-- `src/routes/assistantRoutes.js`：助教相关路由定义，映射到 `assistantController`。
-- `src/routes/userRoutes.js`：用户模块路由（登录、个人信息、前端用户功能等）。
+- 客户端/前端业务（Client）：
+	- `src/client/controllers/*` — 面向客户端的控制器（用户、学助相关接口）。
+	- `src/client/routes/*` — 客户端路由（例如 `/api/users`）。
 
-- `src/modules/admin/controllers/adminController.js`：管理后台业务控制器（管理员登录、统计、管理操作）。
-- `src/modules/admin/models/adminUserModel.js`：管理员用户模型，存储管理员账户与权限。
-- `src/modules/admin/routes/adminRoutes.js`：管理后台专属路由集合，通常挂载到 `/api/admin` 前缀下。
+- 数据与模型层（DB）：
+	- `src/db/models/*` — 所有 Sequelize 模型集中管理（`assistantModel.js`、`accountModel.js`、`userModel.js`、`assistantTimeLog.js` 等）。
+	- `src/db/seeders/*` — 数据填充脚本（种子）。
 
-- `src/modules/frontend/controllers/userController.js`：面向前端的用户业务（前端页面所需的接口适配层）。
-- `src/modules/frontend/models/userModel.js`：若前端模块有自己扩展的用户数据结构，会放在这里（与全局 `userModel` 可互补或共享）。
-- `src/modules/frontend/routes/userRoutes.js`：前端用户相关路由（挂载点可为 `/api/users` 或前端约定的前缀）。
+- 公共/共享组件（Common）：
+	- `src/common/middleware/*` — 公共中间件（如 `authMiddleware.js`）。
+	- `src/common/utils/*` — 工具函数与导入解析（如 `excelParser.js`、`validators.js`）。
+	- `src/common/controllers/*` — 可复用的控制器（如 `authController.js` 已迁移至此）。
 
-- `src/scripts/seedAdmin.js` / `src/scripts/seedAssistants.js`：数据种子脚本，用于快速创建初始管理员账号或助教测试数据。
+- `src/scripts/seedAdmin.js` / `src/scripts/seedAssistants.js`：数据种子脚本，用于快速创建初始管理员账号或助教测试数据（已更新以使用 `src/db/models` 或 `src/admin/models`）。
 
 ## 快速运行
 
@@ -60,9 +61,9 @@ npm run dev
 
 ## 后续建议
 
-- 根据需用将 `src/modules/frontend` 与顶层 `controllers` / `models` 做进一步分离或合并，避免重复模型定义。
+- 已将模块化结构整理为 `src/admin`、`src/client`、`src/db` 与 `src/common`，请以此为主，避免重复模型定义与多处维护同一模型。
 - 若计划运行在生产环境，建议使用 `PM2` 或 Windows 服务工具结合 `ecosystem.config.js` 做进程管理与日志收集。
 
 ---
 
-如果你希望我把 README 扩展为英文版、或把每个接口逐一列出（从 `API.md` 自动同步），我可以继续帮你生成。
+

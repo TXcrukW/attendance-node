@@ -1,7 +1,7 @@
 const { Op, literal } = require('sequelize');
-const { sequelize } = require('../config/db');
-const Assistant = require('../db/models/assistantModel');
-const AssistantTimeLog = require('../db/models/assistantTimeLog');
+const { sequelize } = require('../../config/db');
+const Assistant = require('../../db/models/assistantModel');
+const AssistantTimeLog = require('../../db/models/assistantTimeLog');
 
 // 列表（支持搜索、分页）
 exports.listAssistants = async (req, res) => {
@@ -114,7 +114,7 @@ exports.createAssistant = async (req, res) => {
     const {
       validateAssistantData,
       normalizeAssistantData,
-    } = require('../common/utils/validators');
+    } = require('../../common/utils/validators');
 
     // 数据验证
     const validation = validateAssistantData({
@@ -151,7 +151,7 @@ exports.createAssistant = async (req, res) => {
     });
 
     // 创建学助（同时在 accounts 表创建对应账户）
-    const Account = require('../db/models/accountModel');
+    const Account = require('../../db/models/accountModel');
 
     const transaction = await sequelize.transaction();
     let assistant;
@@ -222,7 +222,7 @@ exports.deleteAssistant = async (req, res) => {
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
     // 同步删除/禁用对应的 account（优先软删除：设置 isActive = false）
     try {
-      const Account = require('../db/models/accountModel');
+      const Account = require('../../db/models/accountModel');
       const acc = await Account.findOne({ where: { assistantId: assistant.id } });
       if (acc) {
         await acc.update({ isActive: false });
@@ -270,12 +270,12 @@ exports.bulkImport = async (req, res) => {
     const {
       validateAssistantData,
       normalizeAssistantData,
-    } = require('../common/utils/validators');
+    } = require('../../common/utils/validators');
     const {
       mapFieldNamesForBatch,
       deduplicateByStudentId,
       generateImportReport,
-    } = require('../common/utils/excelParser');
+    } = require('../../common/utils/excelParser');
 
     // 第 1 步：字段名映射（处理不同表头）
     const mappedData = mapFieldNamesForBatch(data, fieldMapping);
@@ -453,7 +453,7 @@ exports.resetPassword = async (req, res) => {
     const assistant = await Assistant.findByPk(id);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
 
-    const Account = require('../db/models/accountModel');
+    const Account = require('../../db/models/accountModel');
     const acc = await Account.findOne({ where: { assistantId: assistant.id } });
     if (!acc) return res.status(404).json({ message: '未找到对应账户' });
 
@@ -504,7 +504,7 @@ exports.importFile = async (req, res) => {
     const mimeType = req.file?.mimetype || 'text/csv';
     const { mode = 'insert', fieldMapping = {} } = req.body;
 
-    const { parseCSV, parseExcel } = require('../common/utils/excelParser');
+    const { parseCSV, parseExcel } = require('../../common/utils/excelParser');
 
     let data = [];
 

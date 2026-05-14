@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../../config/db');
 const Assistant = require('./assistantModel');
 
 const AssistantTimeLog = sequelize.define('AssistantTimeLog', {

@@ -2,8 +2,8 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const { connectDB, sequelize } = require('./config/db');
-const userRoutes = require('./modules/frontend/routes/userRoutes');
-const adminRoutes = require('./modules/admin/routes/adminRoutes');
+const userRoutes = require('./client/routes/userRoutes');
+const adminRoutes = require('./admin/routes/adminRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
 const authRoutes = require('./routes/authRoutes');
 

@@ -1,8 +1,8 @@
 const dotenv = require('dotenv');
 dotenv.config();
 const { connectDB, sequelize } = require('../config/db');
-const Assistant = require('../models/assistantModel');
-const AssistantTimeLog = require('../models/assistantTimeLog');
+const Assistant = require('../db/models/assistantModel');
+const AssistantTimeLog = require('../db/models/assistantTimeLog');
 
 async function seed() {
   await connectDB();

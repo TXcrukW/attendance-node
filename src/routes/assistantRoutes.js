@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../controllers/assistantController');
-const { protect } = require('../middleware/authMiddleware');
+const controller = require('../client/controllers/assistantController');
+const { protect } = require('../common/middleware/authMiddleware');
 
 // 所有接口需要登录，写操作应由前端进一步校验 role
 router.get('/', protect, controller.listAssistants);

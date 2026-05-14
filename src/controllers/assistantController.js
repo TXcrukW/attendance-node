@@ -23,7 +23,8 @@ exports.listAssistants = async (req, res) => {
       where,
       limit: parseInt(limit, 10),
       offset: parseInt(offset, 10),
-      order: [['createdAt', 'DESC']],
+      // 按学号升序返回，方便前端表格按学号顺序渲染
+      order: [['studentId', 'ASC']],
       attributes: {
         include: [
           [literal(`(
@@ -33,7 +34,29 @@ exports.listAssistants = async (req, res) => {
       },
     });
 
-    res.json({ data: rows, total: count, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+    // 标准化返回结构，确保前端接收到固定的字段和类型
+    const data = rows.map((r) => {
+      const p = (typeof r.get === 'function') ? r.get({ plain: true }) : r;
+      return {
+        id: p.id,
+        studentId: p.studentId,
+        name: p.name,
+        position: p.position,
+        // 保持布尔值，前端按需渲染为“上班/下班”或“在岗/离岗”
+        isOnDuty: Boolean(p.isOnDuty),
+        status: p.status,
+        phone: p.phone,
+        email: p.email,
+        // hourlyRate 保持字符串形式以避免精度问题
+        hourlyRate: p.hourlyRate != null ? String(p.hourlyRate) : '0.00',
+        // totalHours 统一为数字
+        totalHours: p.totalHours != null ? Number(p.totalHours) : 0,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
+
+    res.json({ data, total: count, page: parseInt(page, 10), limit: parseInt(limit, 10) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '获取学助列表失败' });
@@ -55,27 +78,105 @@ exports.getAssistant = async (req, res) => {
     });
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
 
-    res.json(assistant);
+    const p = assistant.get ? assistant.get({ plain: true }) : assistant;
+    const payload = {
+      id: p.id,
+      studentId: p.studentId,
+      name: p.name,
+      position: p.position,
+      isOnDuty: Boolean(p.isOnDuty),
+      status: p.status,
+      phone: p.phone,
+      email: p.email,
+      hourlyRate: p.hourlyRate != null ? String(p.hourlyRate) : '0.00',
+      totalHours: p.totalHours != null ? Number(p.totalHours) : 0,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      notes: p.notes,
+    };
+
+    res.json(payload);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '获取学助详情失败' });
   }
 };
 
-// 新建
+// 新建单个学助
 exports.createAssistant = async (req, res) => {
   try {
-    const { studentId, name, hourlyRate = 0, status = 'active', phone, email, notes, position, isOnDuty = false } = req.body;
-    if (!studentId || !name) return res.status(400).json({ message: '缺少 studentId 或 name' });
+    const {
+      studentId,
+      name,
+      phone,
+      positionLevel,
+      email,
+      notes,
+    } = req.body;
 
-    const exists = await Assistant.findOne({ where: { studentId } });
-    if (exists) return res.status(409).json({ message: '学号已存在' });
+    // 引入验证工具
+    const {
+      validateAssistantData,
+      normalizeAssistantData,
+    } = require('../utils/validators');
 
-    const assistant = await Assistant.create({ studentId, name, hourlyRate, status, phone, email, notes, position, isOnDuty });
-    res.status(201).json(assistant);
+    // 数据验证
+    const validation = validateAssistantData({
+      studentId,
+      name,
+      phone,
+      positionLevel,
+      email,
+      notes,
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({
+        message: '数据验证失败',
+        errors: validation.errors,
+      });
+    }
+
+    // 检查学号唯一性
+    const exists = await Assistant.findOne({ where: { studentId: studentId.trim() } });
+    if (exists) {
+      return res.status(409).json({
+        message: '学号已存在',
+        existingId: exists.id,
+      });
+    }
+
+    // 规范化数据
+    const normalizedData = normalizeAssistantData({
+      studentId,
+      name,
+      phone,
+      positionLevel,
+      email,
+      notes,
+    });
+
+    // 创建学助
+    const assistant = await Assistant.create(normalizedData);
+
+    // 返回标准格式
+    const p = assistant.get({ plain: true });
+    res.status(201).json({
+      id: p.id,
+      studentId: p.studentId,
+      name: p.name,
+      phone: p.phone,
+      position: p.position,
+      hourlyRate: String(p.hourlyRate),
+      email: p.email,
+      status: p.status,
+      isOnDuty: Boolean(p.isOnDuty),
+      notes: p.notes,
+      createdAt: p.createdAt,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: '创建学助失败' });
+    res.status(500).json({ message: '创建学助失败', error: err.message });
   }
 };
 
@@ -110,45 +211,154 @@ exports.deleteAssistant = async (req, res) => {
 };
 
 // 批量导入（接收 JSON 数组）
+// 批量导入学助
+// 支持多种导入模式：insert（新增）、upsert（新增或更新）
 exports.bulkImport = async (req, res) => {
   try {
-    const items = req.body;
-    if (!Array.isArray(items)) return res.status(400).json({ message: '请求体应为数组' });
+    const { data, mode = 'insert', fieldMapping = {} } = req.body;
 
-    const toCreate = items.map((it) => ({
-      studentId: it.studentId,
-      name: it.name,
-      hourlyRate: it.hourlyRate || 0,
-      status: it.status || 'active',
-      position: it.position,
-      isOnDuty: typeof it.isOnDuty === 'boolean' ? it.isOnDuty : (it.isOnDuty === 'true'),
-      phone: it.phone,
-      email: it.email,
-      notes: it.notes,
-    }));
+    // 验证输入
+    if (!Array.isArray(data)) {
+      return res.status(400).json({
+        message: '请求体 data 字段必须为数组',
+      });
+    }
 
-    // bulkCreate + ignore duplicates: 使用 postgres 的 ON CONFLICT 需要 raw query 或先查询
-    // 简化：尝试创建并在冲突时跳过
-    const results = [];
-    for (const r of toCreate) {
+    if (data.length === 0) {
+      return res.status(400).json({
+        message: 'data 数组不能为空',
+      });
+    }
+
+    const maxRows = 1000;
+    if (data.length > maxRows) {
+      return res.status(400).json({
+        message: `单次导入不能超过 ${maxRows} 行`,
+      });
+    }
+
+    // 引入工具函数
+    const {
+      validateAssistantData,
+      normalizeAssistantData,
+    } = require('../utils/validators');
+    const {
+      mapFieldNamesForBatch,
+      deduplicateByStudentId,
+      generateImportReport,
+    } = require('../utils/excelParser');
+
+    // 第 1 步：字段名映射（处理不同表头）
+    const mappedData = mapFieldNamesForBatch(data, fieldMapping);
+
+    // 第 2 步：去重（内部去重）
+    const { deduped, duplicates: internalDuplicates } = deduplicateByStudentId(mappedData);
+
+    // 第 3 步：验证每一行
+    const validRows = [];
+    const invalidRows = [];
+
+    internalDuplicates.forEach((dup) => {
+      invalidRows.push({
+        rowIndex: dup.rowIndex,
+        studentId: dup.studentId,
+        reason: '导入数据中存在重复学号',
+      });
+    });
+
+    deduped.forEach((row, index) => {
+      const validation = validateAssistantData(row);
+      if (validation.valid) {
+        validRows.push({
+          originalIndex: index,
+          data: row,
+        });
+      } else {
+        invalidRows.push({
+          rowIndex: index + 1,
+          studentId: row.studentId || '无',
+          reason: validation.errors.join('; '),
+        });
+      }
+    });
+
+    if (validRows.length === 0) {
+      return res.status(400).json({
+        message: '无有效数据行，导入失败',
+        invalidRows,
+      });
+    }
+
+    // 第 4 步：执行导入（根据模式）
+    const results = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    for (const { data: rawData } of validRows) {
       try {
-        const existing = await Assistant.findOne({ where: { studentId: r.studentId } });
-        if (existing) {
-          await existing.update(r);
-          results.push({ studentId: r.studentId, action: 'updated' });
-        } else {
-          await Assistant.create(r);
-          results.push({ studentId: r.studentId, action: 'created' });
+        const normalizedData = normalizeAssistantData(rawData);
+
+        if (mode === 'insert') {
+          // 仅新增模式
+          const existing = await Assistant.findOne({
+            where: { studentId: normalizedData.studentId },
+          });
+
+          if (existing) {
+            results.skipped += 1;
+          } else {
+            await Assistant.create(normalizedData);
+            results.created += 1;
+          }
+        } else if (mode === 'upsert') {
+          // upsert 模式：新增或更新
+          const [assistant, created] = await Assistant.findOrCreate({
+            where: { studentId: normalizedData.studentId },
+            defaults: normalizedData,
+          });
+
+          if (!created) {
+            // 存在则更新
+            await assistant.update(normalizedData);
+            results.updated += 1;
+          } else {
+            results.created += 1;
+          }
         }
-      } catch (e) {
-        results.push({ studentId: r.studentId, action: 'error', reason: e.message });
+      } catch (err) {
+        results.failed += 1;
+        results.errors.push({
+          studentId: rawData.studentId,
+          name: rawData.name,
+          reason: err.message,
+        });
       }
     }
 
-    res.json({ results });
+    // 生成报告
+    const report = generateImportReport({
+      created: results.created,
+      updated: results.updated,
+      skipped: results.skipped,
+      failed: results.failed,
+      errors: results.errors,
+    });
+
+    res.json({
+      ...report,
+      invalidRows,
+      message: `导入完成: 成功 ${report.summary.success} 行，失败 ${results.failed} 行`,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: '批量导入失败' });
+    res.status(500).json({
+      message: '批量导入失败',
+      error: err.message,
+    });
   }
 };
 
@@ -191,7 +401,17 @@ exports.setOnDuty = async (req, res) => {
     const assistant = await Assistant.findByPk(id);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
     await assistant.update({ isOnDuty });
-    res.json(assistant);
+    const p = assistant.get ? assistant.get({ plain: true }) : assistant;
+    res.json({
+      id: p.id,
+      studentId: p.studentId,
+      name: p.name,
+      position: p.position,
+      isOnDuty: Boolean(p.isOnDuty),
+      status: p.status,
+      phone: p.phone,
+      email: p.email,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '更新在岗状态失败' });
@@ -209,5 +429,57 @@ exports.stats = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '统计失败' });
+  }
+};
+
+// 文件上传导入接口（支持 CSV、Excel）
+// 前端需配合 multer/formidable 上传文件
+// 使用示例：
+// const formData = new FormData();
+// formData.append('file', fileObject);
+// formData.append('mode', 'upsert');
+// fetch('/api/assistants/import-file', { method: 'POST', body: formData, headers: { Authorization: 'Bearer token' } })
+exports.importFile = async (req, res) => {
+  try {
+    // 注：需在路由中配置 multer 中间件来处理文件上传
+    // 这里假设文件内容已通过中间件处理，存储在 req.file.buffer 或 req.fileContent
+    if (!req.file && !req.fileContent) {
+      return res.status(400).json({
+        message: '未找到上传的文件',
+      });
+    }
+
+    const fileBuffer = req.file?.buffer || Buffer.from(req.fileContent, 'utf8');
+    const mimeType = req.file?.mimetype || 'text/csv';
+    const { mode = 'insert', fieldMapping = {} } = req.body;
+
+    const { parseCSV, parseExcel } = require('../utils/excelParser');
+
+    let data = [];
+
+    // 根据文件类型选择解析方式
+    if (mimeType === 'text/csv' || mimeType === 'application/csv') {
+      const csvContent = fileBuffer.toString('utf-8');
+      data = parseCSV(csvContent, { delimiter: ',' });
+    } else if (
+      mimeType === 'application/vnd.ms-excel'
+      || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ) {
+      data = parseExcel(fileBuffer, { sheetIndex: 0 });
+    } else {
+      return res.status(400).json({
+        message: '不支持的文件类型，请上传 CSV 或 Excel 文件',
+      });
+    }
+
+    // 调用 bulkImport 逻辑
+    req.body = { data, mode, fieldMapping };
+    await exports.bulkImport(req, res);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      message: '文件导入失败',
+      error: err.message,
+    });
   }
 };

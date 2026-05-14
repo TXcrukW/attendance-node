@@ -54,14 +54,9 @@ NODE_ENV=development
 npm run dev
 ```
 
-## 常见路由（示例）
+## API 文档
 
-- 管理员登录：`POST /api/admin/login`
-- 管理员信息：`GET /api/admin/profile`
-- 用户登录：`POST /api/users/login`
-- 用户信息：`GET /api/users/profile`
-
-（具体接口与请求/响应格式参见 `API.md`）
+- 详细接口说明与请求/响应示例请参见 [API.md](API.md)。
 
 ## 后续建议
 

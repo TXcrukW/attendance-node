@@ -1,129 +1,73 @@
-# 校园考勤系统后端 (Attendance System Backend)
+# 校园考勤系统后端
 
-本项目是校园考勤系统的后端部分，采用 Node.js 构建，旨在为前端（Vue 框架）提供稳定、安全的 API 服务。
+后端项目为校园考勤系统提供 RESTful API 与认证授权服务，基于 Node.js + Express + Sequelize 开发。
 
-## API 端点
+## 概览
 
-- **管理后台 API**: [管理后台 API 文档](API.md) — 包含管理员登录（POST /api/admin/login）与获取资料（GET /api/admin/profile）等接口说明、请求示例与响应示例。
+- 入口：`src/app.js` — 应用初始化、路由挂载与中间件配置。
+- 配置：`src/config/db.js` — 数据库连接（Sequelize）与重连策略。
+- 权限与鉴权：`src/middleware/authMiddleware.js` — JWT 验证与权限守卫。
 
-你可以在 GitHub 仓库主页直接点击上方链接查看完整端点文档。
+## 各模块与文件说明（简要）
 
-## 技术栈
+- `src/app.js`：应用主入口，配置中间件（bodyParser、CORS、日志）、全局错误处理，并挂载各模块路由。
+- `src/config/db.js`：Sequelize 数据库配置、连接初始化与重试/重连逻辑，封装导出供模型使用。
 
-- **Runtime**: Node.js (推荐版本: v18+)
-- **Framework**: Express.js
-- **ORM**: Sequelize（PostgreSQL）
-- **Authentication**: JSON Web Token (JWT)
-- **Security**: bcryptjs (密码加密)
-- **CORS**: 支持跨域请求，方便与前端联调
+- `src/controllers/assistantController.js`：助教/考勤助手相关的请求处理逻辑（如注册、状态查询等接口）。
+- `src/controllers/userController.js`：通用用户相关控制器（用户登录、获取资料等），供顶层或模块路由使用。
 
-## 目录结构（已模块化）
+- `src/middleware/authMiddleware.js`：解析 `Authorization` 头、验证 JWT、在请求中注入用户信息并控制受保护路由访问。
 
-```text
-attendance-node/
-├── src/
-│   ├── app.js                     # 应用入口及中间件配置
-│   ├── config/                    # 配置文件 (数据库连接等)
-│   ├── modules/                   # 按业务模块划分
-│   │   ├── frontend/              # 前端/用户相关业务
-│   │   │   ├── controllers/
-│   │   │   ├── models/
-│   │   │   └── routes/
-│   │   └── admin/                 # 管理后台业务
-│   │       ├── controllers/
-│   │       ├── models/
-│   │       └── routes/
-│   ├── middleware/                # 公共中间件 (鉴权等)
-│   └── utils/                     # 工具函数
-├── .env                          # 环境变量 (如 JWT_SECRET, DATABASE_URL)
-├── package.json                  # 项目依赖与脚本
-└── README.md                     # 项目说明文档
+- `src/models/assistantModel.js`：助教/设备等主体的数据模型定义（Sequelize model）。
+- `src/models/assistantTimeLog.js`：记录助教或设备时间线/打卡记录的模型（考勤日志）。
+- `src/models/userModel.js`：用户（学生/教师/管理员）数据模型，包含认证字段与权限字段。
+
+- `src/routes/assistantRoutes.js`：助教相关路由定义，映射到 `assistantController`。
+- `src/routes/userRoutes.js`：用户模块路由（登录、个人信息、前端用户功能等）。
+
+- `src/modules/admin/controllers/adminController.js`：管理后台业务控制器（管理员登录、统计、管理操作）。
+- `src/modules/admin/models/adminUserModel.js`：管理员用户模型，存储管理员账户与权限。
+- `src/modules/admin/routes/adminRoutes.js`：管理后台专属路由集合，通常挂载到 `/api/admin` 前缀下。
+
+- `src/modules/frontend/controllers/userController.js`：面向前端的用户业务（前端页面所需的接口适配层）。
+- `src/modules/frontend/models/userModel.js`：若前端模块有自己扩展的用户数据结构，会放在这里（与全局 `userModel` 可互补或共享）。
+- `src/modules/frontend/routes/userRoutes.js`：前端用户相关路由（挂载点可为 `/api/users` 或前端约定的前缀）。
+
+- `src/scripts/seedAdmin.js` / `src/scripts/seedAssistants.js`：数据种子脚本，用于快速创建初始管理员账号或助教测试数据。
+
+## 快速运行
+
+1. 安装依赖：
+```
+npm install
+```
+2. 配置 `.env`（示例）：
+```
+PORT=3000
+DATABASE_URL=postgres://user:password@localhost:5432/attendance_db
+JWT_SECRET=your_secret_key
+JWT_EXPIRES_IN=24h
+NODE_ENV=development
+```
+3. 启动：
+```
+npm run dev
 ```
 
-## 环境要求
+## 常见路由（示例）
 
-- **Node.js**: v18+（推荐）
-- **数据库**: PostgreSQL（也可配置其他 Sequelize 支持的数据库）
+- 管理员登录：`POST /api/admin/login`
+- 管理员信息：`GET /api/admin/profile`
+- 用户登录：`POST /api/users/login`
+- 用户信息：`GET /api/users/profile`
 
-## 快速启动
+（具体接口与请求/响应格式参见 `API.md`）
 
-1. **安装依赖**:
-   ```bash
-   npm install
-   ```
+## 后续建议
 
-2. **配置环境变量**:
-   在根目录创建 `.env` 文件（或编辑现有文件）。至少需要以下配置：
-   ```env
-   PORT=3000
-   DATABASE_URL=postgres://user:password@localhost:5432/attendance_db
-   JWT_SECRET=your_secret_key
-   JWT_EXPIRES_IN=24h
-   NODE_ENV=development
-   ```
+- 根据需用将 `src/modules/frontend` 与顶层 `controllers` / `models` 做进一步分离或合并，避免重复模型定义。
+- 若计划运行在生产环境，建议使用 `PM2` 或 Windows 服务工具结合 `ecosystem.config.js` 做进程管理与日志收集。
 
-3. **启动项目**:
-   - 开发模式 (使用 nodemon 自动重启):
-     ```bash
-     npm run dev
-     ```
-   - 生产模式:
-     ```bash
-     npm start
-     ```
+---
 
-4. **快速验证（无前端）**:
-   在服务器启动后，访问 `GET /` 应返回服务运行信息；也可访问模块路由：
-   - 用户模块: `POST /api/users/login`, `GET /api/users/profile`
-   - 管理模块: `POST /api/admin/login`, `GET /api/admin/profile`
-
-## 注意事项
-
-- 本仓库中使用了 Sequelize 与 PostgreSQL（请确保 `DATABASE_URL` 正确），如果你希望使用 SQLite 或其他 DB，请在 `src/config/db.js` 中调整配置。
-- 若当前未配置数据库或连接失败，服务器会在启动时打印错误并退出。要仅验证路由结构，可先设置一个可用的 `DATABASE_URL`（或在本地启动 PostgreSQL）。
- 
-### 守护进程与进程管理（推荐）
-
-为保证后端稳定运行并在崩溃时自动重启，推荐使用进程管理工具。下面给出两个常用方案：
-
-- 使用 `PM2`（跨平台，常用）:
-  1. 全局安装（或按需使用项目内安装）:
-     ```bash
-     npm install -g pm2
-     ```
-  2. 启动（生产环境）:
-     ```bash
-     npm run start:pm2
-     ```
-  3. 查看进程与日志:
-     ```bash
-     pm2 ls
-     pm2 logs attendance-node
-     ```
-  4. 将 PM2 注册为系统服务以随系统启动（Windows 下可使用 `pm2-startup` 指令或 `pm2 save` + `pm2-startup`，详见 PM2 文档）。
-
-- Windows 服务（可选）:
-  - `nssm` 或 `node-windows` 可以将 `node src/app.js` 注册为 Windows 服务并设置自动重启策略。
-
-我已经在仓库添加了 `ecosystem.config.js`（适用于 PM2）和 `package.json` 的 `start:pm2` / `stop:pm2` 脚本。
-
-### 稳定的数据库连接与自动重连
-
-为降低 DB 连接波动导致进程退出的风险，项目已将 `src/config/db.js` 增强为：
-
-- 初始连接尝试带有重试（默认 5 次，每次间隔 5s）；
-- 初始重试失败后会启动后台循环继续尝试重连，避免直接 `process.exit`，从而保证进程在数据库短暂不可用时仍保持运行并在 DB 恢复后自动连接。
-
-如果你希望服务在数据库不可用时不接收请求，可以把启动服务器逻辑改为在首次成功连接后再启动（我也可以帮你修改）。
-
-## 鉴权说明
-受保护的路由需要在 HTTP 请求头中添加以下信息：
-```text
-Authorization: Bearer <your_jwt_token_here>
-```
-
-## 后续迭代计划
-- [ ] 考勤统计功能
-- [ ] 课程表同步与展示
-- [ ] 请假申请审批流
-- [ ] 实时点名推送功能
+如果你希望我把 README 扩展为英文版、或把每个接口逐一列出（从 `API.md` 自动同步），我可以继续帮你生成。

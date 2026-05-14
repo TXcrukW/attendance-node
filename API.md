@@ -112,3 +112,76 @@ curl -X GET http://localhost:3000/api/admin/profile \
 ```
 
 若 token 无效或未提供，请求将返回 401 未授权。
+
+## 学助管理（Assistants）
+
+所有学助管理接口均需在请求头中携带 `Authorization: Bearer <JWT_TOKEN>`。
+
+### 列表 — GET /api/assistants
+- 描述：分页获取学助列表，支持搜索和状态过滤。
+- 请求示例：`GET /api/assistants?search=张&page=1&limit=10&status=active`
+- 返回（200）：
+
+```json
+{
+  "data": [
+    {
+      "id": "...",
+      "studentId": "2021001",
+      "name": "张三",
+      "position": "图书助理",
+      "isOnDuty": true,
+      "status": "active",
+      "phone": "13800138001",
+      "email": "zhangsan@campus.edu",
+      "hourlyRate": "15.00",
+      "totalHours": "6.00"
+    }
+  ],
+  "total": 5,
+  "page": 1,
+  "limit": 10
+}
+```
+
+### 详情 — GET /api/assistants/:id
+- 描述：获取单个学助详情（含聚合的 `totalHours` 字段）。
+
+### 新建 — POST /api/assistants
+- 请求头：`Authorization: Bearer <JWT_TOKEN>`
+- 请求体（JSON）：
+
+```json
+{
+  "studentId": "2021006",
+  "name": "周八",
+  "position": "活动助理",
+  "hourlyRate": 16,
+  "isOnDuty": true,
+  "phone": "13800138006",
+  "email": "zhoub@campus.edu"
+}
+```
+
+### 更新 — PUT /api/assistants/:id
+- 描述：更新学助字段（可传任意可更新字段）。
+
+### 删除 — DELETE /api/assistants/:id
+
+### 设置在岗状态 — POST /api/assistants/:id/status
+- 描述：设置 `isOnDuty`（上班/下班）状态。
+- 请求体：`{ "isOnDuty": true }`
+
+### 批量导入 — POST /api/assistants/import
+- 描述：接收 JSON 数组（或后续可扩展为 CSV 上传），对已有学号进行更新或创建新记录。
+
+### 时间日志
+- 列表：GET `/api/assistants/:assistantId/timelogs`
+- 创建：POST `/api/assistants/:assistantId/timelogs` body `{ date, hours, remark }`
+
+### 统计 — GET /api/assistants/stats
+- 描述：返回统计数据：`total`、`active`、`inactive`、`totalHours`。
+
+---
+
+说明：前端表格可按下列字段渲染（红框从左到右）：`studentId`、`name`、`position`、`isOnDuty`（渲染为“上班/下班”）、`phone`、操作按钮（编辑/设为离岗/重置密码等）。

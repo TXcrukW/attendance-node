@@ -388,6 +388,52 @@ Authorization: Bearer <JWT_TOKEN>
 
 ---
 
+## 管理员 - 数据同步 / 运维接口
+
+### 同步孤立账户 — POST /api/admin/sync-accounts
+
+**描述**：管理员触发的运维接口，删除 `Accounts` 表中 `assistantId` 不为空但在 `Assistants` 表中已不存在的孤立账户记录（用于修复管理后台误删导致的同步不一致）。
+
+**认证**：必需管理员 `Bearer Token`
+
+**请求**：
+```
+POST /api/admin/sync-accounts
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**成功响应 (200)**：
+```json
+{
+  "message": "同步完成，已删除 2 条孤立账户",
+  "deleted": 2,
+  "accounts": [
+    { "id": "...", "username": "2021002", "assistantId": "..." }
+  ]
+}
+```
+
+**无需清理示例**：
+```json
+{ "message": "数据已一致，无需清理", "deleted": 0 }
+```
+
+### 运维脚本 — src/scripts/syncOrphanAccounts.js
+
+项目提供了一个临时使用的脚本用于一次性修复历史遗留数据：
+
+- 用法（预览，不删除）：
+```
+node src/scripts/syncOrphanAccounts.js --dry-run
+```
+- 用法（正式删除）：
+```
+node src/scripts/syncOrphanAccounts.js
+```
+
+脚本逻辑：查找 `Accounts` 表中 `assistantId` 非空但在 `Assistants` 表中不存在的记录，打印列表并在非 `--dry-run` 模式下物理删除这些账户。
+
+
 # Excel/CSV 处理流程
 
 ## 前端数据准备指南

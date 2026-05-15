@@ -16,7 +16,7 @@ const protect = async (req, res, next) => {
         // 优先按 accountId 查找（学号登录场景）
         if (decoded.accountId) {
           const account = await Account.findByPk(decoded.accountId);
-          if (!account) return res.status(401).json({ message: '授权失败，账户不存在' });
+          if (!account || !account.isActive) return res.status(401).json({ message: '授权失败，账户不存在或已禁用' });
           if (!account.currentSessionId || account.currentSessionId !== decoded.sid) {
             return res.status(401).json({ message: '授权失败，token 已失效' });
           }

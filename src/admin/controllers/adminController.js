@@ -48,7 +48,45 @@ const getAdminProfile = async (req, res) => {
   }
 };
 
+// POST /api/admin/sync-accounts
+// 删除 Accounts 表中 assistantId 已不存在于 Assistants 表的孤立账户
+const syncAccounts = async (req, res) => {
+  const { Op } = require('sequelize');
+  const Account = require('../../db/models/accountModel');
+  const Assistant = require('../../db/models/assistantModel');
+  try {
+    const assistants = await Assistant.findAll({ attributes: ['id'] });
+    const existingIds = assistants.map((a) => a.id);
+
+    const orphans = await Account.findAll({
+      where: {
+        assistantId: {
+          [Op.not]: null,
+          [Op.notIn]: existingIds.length > 0 ? existingIds : ['__none__'],
+        },
+      },
+    });
+
+    if (orphans.length === 0) {
+      return res.json({ message: '数据已一致，无需清理', deleted: 0 });
+    }
+
+    const orphanIds = orphans.map((acc) => acc.id);
+    const deleted = await Account.destroy({ where: { id: { [Op.in]: orphanIds } } });
+
+    res.json({
+      message: `同步完成，已删除 ${deleted} 条孤立账户`,
+      deleted,
+      accounts: orphans.map((acc) => ({ id: acc.id, username: acc.username, assistantId: acc.assistantId })),
+    });
+  } catch (err) {
+    console.error('syncAccounts error:', err);
+    res.status(500).json({ message: '同步失败', error: err.message });
+  }
+};
+
 module.exports = {
   loginAdmin,
   getAdminProfile,
+  syncAccounts,
 };

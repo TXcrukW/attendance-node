@@ -220,19 +220,9 @@ exports.deleteAssistant = async (req, res) => {
     const { id } = req.params;
     const assistant = await Assistant.findByPk(id);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
-    // 同步删除/禁用对应的 account（优先软删除：设置 isActive = false）
-    try {
-      const Account = require('../../db/models/accountModel');
-      const acc = await Account.findOne({ where: { assistantId: assistant.id } });
-      if (acc) {
-        await acc.update({ isActive: false });
-      }
-    } catch (e) {
-      console.error('同步禁用 account 失败', e.message || e);
-    }
-
+    // assistant.destroy() 会触发 afterDestroy hook，hook 内会同步物理删除对应 account
     await assistant.destroy();
-    res.json({ message: '已删除（学助数据已删除，账户已禁用）' });
+    res.json({ message: '已删除' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: '删除学助失败' });

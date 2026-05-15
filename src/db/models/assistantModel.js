@@ -91,14 +91,11 @@ const Assistant = sequelize.define('Assistant', {
       }
     },
 
-    // 学助被删除时，软删除/禁用对应 account（保留数据以便审计）
+    // 学助被删除时，同步物理删除对应 account
     afterDestroy: async (assistant, options) => {
       try {
         const t = options.transaction;
-        const account = await Account.findOne({ where: { assistantId: assistant.id } });
-        if (account) {
-          await account.update({ isActive: false }, { transaction: t });
-        }
+        await Account.destroy({ where: { assistantId: assistant.id }, transaction: t });
       } catch (err) {
         console.error('assistantModel.afterDestroy sync Account failed:', err);
       }

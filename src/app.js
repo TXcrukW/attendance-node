@@ -31,9 +31,11 @@ app.use(cors());
 app.use(express.json()); // 解析 JSON 格式请求体
 
 // 路由
-app.use('/api/users', userRoutes);
+// 客户端统一使用 /api/user 前缀（学号登录等）
+app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/assistants', assistantRoutes);
+// 保留旧的 /api/auth 路由以兼容其他用途（可选）
 app.use('/api/auth', authRoutes);
 
 // 根路由测试

@@ -6,6 +6,11 @@ const userRoutes = require('./client/routes/userRoutes');
 const adminRoutes = require('./admin/routes/adminRoutes');
 const assistantRoutes = require('./routes/assistantRoutes');
 const authRoutes = require('./routes/authRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
+// 预加载考勤相关模型，确保 sequelize.sync() 时建表
+require('./db/models/punchRecord');
+require('./db/models/workSession');
+const { startAttendanceScheduler } = require('./utils/attendanceScheduler');
 
 // 加载环境变量
 dotenv.config();
@@ -16,6 +21,8 @@ connectDB()
     try {
       await sequelize.sync({ alter: true });
       console.log('Database & tables created/updated!');
+      // 数据库就绪后启动考勤自动收口调度器
+      startAttendanceScheduler();
     } catch (err) {
       console.error('Error syncing database models:', err.message || err);
     }
@@ -37,6 +44,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/assistants', assistantRoutes);
 // 保留旧的 /api/auth 路由以兼容其他用途（可选）
 app.use('/api/auth', authRoutes);
+// 学助客户端考勤接口
+app.use('/api/attendance', attendanceRoutes);
 
 // 根路由测试
 app.get('/', (req, res) => {

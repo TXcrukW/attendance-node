@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
 const Account = require('../../db/models/accountModel');
-const User = require('../../db/models/userModel');
 const AdminUser = require('../../admin/models/adminUserModel');
 
 const protect = async (req, res, next) => {
@@ -24,18 +23,8 @@ const protect = async (req, res, next) => {
           return next();
         }
 
-        // 再按普通用户 id 查找
+        // 按管理员 id 查找
         if (decoded.id) {
-          const user = await User.findByPk(decoded.id);
-          if (user) {
-            if (!user.currentSessionId || user.currentSessionId !== decoded.sid) {
-              return res.status(401).json({ message: '授权失败，token 已失效' });
-            }
-            req.user = { id: user.id, username: user.username };
-            return next();
-          }
-
-          // 最后按管理员查找
           const admin = await AdminUser.findByPk(decoded.id);
           if (admin) {
             if (!admin.currentSessionId || admin.currentSessionId !== decoded.sid) {

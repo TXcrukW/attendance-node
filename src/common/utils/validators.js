@@ -164,7 +164,8 @@ function normalizeAssistantData(rawData) {
     position,
     hourlyRate,
     status: 'active',
-    isOnDuty: false,
+    // 新增 isOnShift 字段（上/下班）
+    isOnShift: false,
     notes: rawData.notes ? rawData.notes.trim() : null,
   };
 }

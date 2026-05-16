@@ -14,11 +14,11 @@ async function seed() {
     await Assistant.destroy({ where: {} });
 
     const assistants = [
-      { studentId: '2021001', name: '张三', position: '图书助理', hourlyRate: 15, isOnDuty: true, status: 'active', phone: '13800138001' },
-      { studentId: '2021002', name: '李四', position: '实验助理', hourlyRate: 12, isOnDuty: true, status: 'active', phone: '13800138002' },
-      { studentId: '2021003', name: '王五', position: '活动助理', hourlyRate: 18, isOnDuty: false, status: 'inactive', phone: '13800138003' },
-      { studentId: '2021004', name: '赵六', position: '课程助理', hourlyRate: 15, isOnDuty: true, status: 'active', phone: '13800138004' },
-      { studentId: '2021005', name: '孙七', position: '教务助理', hourlyRate: 20, isOnDuty: true, status: 'active', phone: '13800138005' },
+      { studentId: '2021001', name: '张三', position: '图书助理', hourlyRate: 15, isOnShift: true, status: 'active', phone: '13800138001' },
+      { studentId: '2021002', name: '李四', position: '实验助理', hourlyRate: 12, isOnShift: true, status: 'active', phone: '13800138002' },
+      { studentId: '2021003', name: '王五', position: '活动助理', hourlyRate: 18, isOnShift: false, status: 'inactive', phone: '13800138003' },
+      { studentId: '2021004', name: '赵六', position: '课程助理', hourlyRate: 15, isOnShift: true, status: 'active', phone: '13800138004' },
+      { studentId: '2021005', name: '孙七', position: '教务助理', hourlyRate: 20, isOnShift: true, status: 'active', phone: '13800138005' },
     ];
 
     for (const a of assistants) {

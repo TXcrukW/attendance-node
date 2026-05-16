@@ -133,7 +133,7 @@ Content-Type: application/json
   "phone": "13800138000",
   "position": "一级岗",
   "status": "active",
-  "isOnDuty": false,
+  "isOnShift": false,
   "createdAt": "2024-05-14T10:30:00.000Z"
 }
 ```
@@ -361,12 +361,14 @@ Authorization: Bearer <JWT_TOKEN>
 
 ---
 
-## 设置在岗状态 — POST /api/assistants/:id/status
+## 设置上/下班状态 — POST /api/assistants/:id/status
+
+**说明**：该接口用于管理员在后台手动设置学助的上/下班状态。现仅支持新字段 `isOnShift`（必须为 boolean）。
 
 **请求体**：
 ```json
 {
-  "isOnDuty": true
+  "isOnShift": true
 }
 ```
 

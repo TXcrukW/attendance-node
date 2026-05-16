@@ -38,15 +38,16 @@
 
 ## 快速运行
 
-更多客户端接口与示例请查看完整接口文档：[API.md](API.md)。
-维护者：客户端控制器实现者。
-	- 500：服务器错误。
+更多文档：
 
-- curl 示例：
+- **客户端 API 文档（前端/学助客户端使用）**：[API_CLIENT.md](API_CLIENT.md) — 包含学号登录、考勤打卡、考勤状态与班次接口说明与示例。
+- **管理后台 API 文档（管理员/运维使用）**：[API.md](API.md) — 包含学助管理、导入、手动上/下班接口与运维脚本说明。
+
+示例：
 
 ```bash
 curl -X GET http://localhost:3000/api/user/profile \
-	-H "Authorization: Bearer <your-jwt-token>"
+  -H "Authorization: Bearer <your-jwt-token>"
 ```
 
 ---

@@ -26,7 +26,8 @@ const Assistant = sequelize.define('Assistant', {
     type: DataTypes.STRING,
     allowNull: true,
   },
-  isOnDuty: {
+  // 语义化字段：isOnShift（上/下班）
+  isOnShift: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
@@ -39,6 +40,7 @@ const Assistant = sequelize.define('Assistant', {
 }, {
   timestamps: true,
   hooks: {
+    // NOTE: 已移除旧字段同步逻辑，系统现在仅使用 isOnShift（上/下班）字段
     // 创建学助时，自动为其在 Account 表创建对应账户（若不存在）
     afterCreate: async (assistant, options) => {
       try {

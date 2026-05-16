@@ -41,8 +41,8 @@ exports.listAssistants = async (req, res) => {
         studentId: p.studentId,
         name: p.name,
         position: p.position,
-        // 保持布尔值，前端按需渲染为“上班/下班”或“在岗/离岗”
-        isOnDuty: Boolean(p.isOnDuty),
+      // 使用语义字段：isOnShift（上/下班）
+      isOnShift: Boolean(p.isOnShift),
         status: p.status,
         phone: p.phone,
         // hourlyRate 保持字符串形式以避免精度问题
@@ -82,7 +82,7 @@ exports.getAssistant = async (req, res) => {
       studentId: p.studentId,
       name: p.name,
       position: p.position,
-      isOnDuty: Boolean(p.isOnDuty),
+      isOnShift: Boolean(p.isOnShift),
       status: p.status,
       phone: p.phone,
       hourlyRate: p.hourlyRate != null ? String(p.hourlyRate) : '0.00',
@@ -179,7 +179,7 @@ exports.createAssistant = async (req, res) => {
       hourlyRate: String(p.hourlyRate),
       
       status: p.status,
-      isOnDuty: Boolean(p.isOnDuty),
+      isOnShift: Boolean(p.isOnShift),
       notes: p.notes,
       createdAt: p.createdAt,
     });
@@ -410,28 +410,28 @@ exports.createTimeLog = async (req, res) => {
   }
 };
 
-// 切换或设置在岗状态（isOnDuty），并返回更新后的对象
+// 切换或设置上/下班状态（仅使用语义字段 `isOnShift`）并返回更新后的对象
 exports.setOnDuty = async (req, res) => {
   try {
     const { id } = req.params;
-    const { isOnDuty } = req.body;
-    if (typeof isOnDuty !== 'boolean') return res.status(400).json({ message: 'isOnDuty 字段必须为 boolean' });
+    const { isOnShift } = req.body || {};
+    if (typeof isOnShift !== 'boolean') return res.status(400).json({ message: 'isOnShift 字段必须为 boolean' });
     const assistant = await Assistant.findByPk(id);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
-    await assistant.update({ isOnDuty });
+    await assistant.update({ isOnShift });
     const p = assistant.get ? assistant.get({ plain: true }) : assistant;
     res.json({
       id: p.id,
       studentId: p.studentId,
       name: p.name,
       position: p.position,
-      isOnDuty: Boolean(p.isOnDuty),
+      isOnShift: Boolean(p.isOnShift),
       status: p.status,
       phone: p.phone,
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: '更新在岗状态失败' });
+    res.status(500).json({ message: '更新上/下班状态失败' });
   }
 };
 

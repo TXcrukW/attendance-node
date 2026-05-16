@@ -80,7 +80,7 @@ Authorization: Bearer <JWT_TOKEN>
 - 所有受保护接口需在 Header 中通过 `Authorization: Bearer <token>` 携带
 - 环境变量：
   - `JWT_SECRET`：签名密钥
-  - `JWT_EXPIRES_IN`：过期时间（如 `7d`）
+  - `JWT_EXPIRES_IN`：过期时间（如 `168h`，即 168 小时 / 7 天）
 
 ---
 

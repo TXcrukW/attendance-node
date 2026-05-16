@@ -53,6 +53,83 @@
 
 ---
 
+## 安装与运行（快速开始）
+
+简要说明如何快速在本地或服务器上启动后台服务，尽量减少可配置项导致的问题。
+
+- 前提：已安装 Node.js（建议 16+）与 npm/yarn；可用的数据库（MySQL / PostgreSQL / SQLite）。
+
+1) 依赖安装
+
+```bash
+# 使用 npm
+npm install
+
+# 或使用 yarn
+yarn install
+```
+
+2) 环境变量（在项目根目录创建 `.env`，项目已提供 `.env.example` 可复制为 `.env` 并根据环境修改）
+
+最小必需变量示例：
+
+```
+PORT=3000
+NODE_ENV=development
+DB_DIALECT=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=attendance_db
+DB_USER=root
+DB_PASSWORD=yourpassword
+JWT_SECRET=change_this_secret
+JWT_EXPIRES_IN=7d
+LOG_LEVEL=info
+```
+
+- 说明：如果使用 PostgreSQL，把 `DB_DIALECT=postgres` 并修改 `DB_PORT`（通常为 5432）；使用 SQLite 可把 `DB_DIALECT=sqlite` 并在 `DB_NAME` 中写入文件路径（或使用默认配置）。
+
+3) 数据库准备
+
+- 在数据库管理工具中创建数据库（例如 `attendance_db`）。
+- 如果项目包含 Sequelize 迁移脚本（见 `src/db/migrations/`），建议使用 Sequelize CLI 执行迁移：
+
+```bash
+# 全局或 npx 方式运行迁移（在项目根目录）
+npx sequelize db:migrate
+```
+
+- 如果未使用迁移，项目通常也会在启动时通过 Sequelize `sync()` 自动创建表（取决于 `src/config/db.js` 的配置）。首次启动前请检查 `src/config/db.js` 的 `sync` 或 `force` 设置以避免误删数据。
+
+4) 数据种子（可选，用于测试）
+
+```bash
+# 示例：创建管理员账号
+node src/scripts/seedAdmin.js
+
+# 写入示例学助数据（会清空相关表，请仅在测试环境使用）
+node src/scripts/seedAssistants.js
+node src/scripts/seedAttendance.js
+```
+
+5) 启动服务
+
+```bash
+# 开发（带热重载可选，若使用 nodemon）
+npm run dev
+
+# 或生产
+npm start
+```
+
+6) 常见问题和注意事项
+
+- 如果连接失败，先确认 `.env` 中 `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD` 是否正确，数据库是否允许本地连接。
+- 若使用 MySQL 且遇到认证插件问题，请确保 MySQL 用户使用兼容的身份验证插件。
+- 如果迁移失败但模型存在，检查 `src/db/models` 与 `src/config/db.js` 的配置是否匹配。
+
+---
+
 ## 快速运行
 
 更多文档：
@@ -64,7 +141,7 @@
 
 ```bash
 curl -X GET http://localhost:3000/api/user/profile \
-  -H "Authorization: Bearer <your-jwt-token>"
+	-H "Authorization: Bearer <your-jwt-token>"
 ```
 
 ---

@@ -150,27 +150,18 @@ exports.createAssistant = async (req, res) => {
       notes,
     });
 
-    // 创建学助（同时在 accounts 表创建对应账户）
+    // 在创建学助之前，先检查 accounts 表中是否已有相同用户名（学号）
     const Account = require('../../db/models/accountModel');
+    const existingAcc = await Account.findOne({ where: { username: normalizedData.studentId } });
+    if (existingAcc) {
+      return res.status(409).json({ message: '对应账户已存在，无法创建学助' });
+    }
 
+    // 创建学助；model 的 afterCreate hook 会在同一事务中同步创建 Account
     const transaction = await sequelize.transaction();
     let assistant;
     try {
       assistant = await Assistant.create(normalizedData, { transaction });
-
-      // 默认密码为学号后六位
-      const sid = normalizedData.studentId || '';
-      const defaultPwd = sid.slice(-6) || '000000';
-
-      // 在 accounts 表创建账户（若用户名已存在则回滚并报错）
-      const existingAcc = await Account.findOne({ where: { username: normalizedData.studentId }, transaction });
-      if (existingAcc) {
-        await transaction.rollback();
-        return res.status(409).json({ message: '对应账户已存在，无法创建学助' });
-      }
-
-      await Account.create({ assistantId: assistant.id, username: normalizedData.studentId, password: defaultPwd }, { transaction });
-
       await transaction.commit();
     } catch (err) {
       await transaction.rollback();
@@ -317,6 +308,8 @@ exports.bulkImport = async (req, res) => {
       errors: [],
     };
 
+    const Account = require('../../db/models/accountModel');
+
     for (const { data: rawData } of validRows) {
       try {
         const normalizedData = normalizeAssistantData(rawData);
@@ -330,8 +323,14 @@ exports.bulkImport = async (req, res) => {
           if (existing) {
             results.skipped += 1;
           } else {
-            await Assistant.create(normalizedData);
-            results.created += 1;
+            // 若 accounts 表中已有相同 username，则跳过，避免后续 hook 抛 unique 错误
+            const accExists = await Account.findOne({ where: { username: normalizedData.studentId } });
+            if (accExists) {
+              results.skipped += 1;
+            } else {
+              await Assistant.create(normalizedData);
+              results.created += 1;
+            }
           }
         } else if (mode === 'upsert') {
           // upsert 模式：新增或更新

@@ -10,7 +10,8 @@ router.post('/import', protect, controller.bulkImport);
 router.post('/', protect, controller.createAssistant);
 router.post('/:id/reset-password', protect, controller.resetPassword);
 router.get('/:id', protect, controller.getAssistant);
-router.put('/:id', protect, controller.updateAssistant);
+// 客户端自我更新（仅允许手机号与密码）
+router.put('/me', protect, controller.updateSelf);
 router.delete('/:id', protect, controller.deleteAssistant);
 
 // 设置在岗状态

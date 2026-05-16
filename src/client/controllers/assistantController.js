@@ -189,21 +189,45 @@ exports.createAssistant = async (req, res) => {
   }
 };
 
-// 更新
-exports.updateAssistant = async (req, res) => {
+// 客户端自我更新：仅允许更新手机号与密码（修改密码需要提供当前密码）
+exports.updateSelf = async (req, res) => {
   try {
-    const { id } = req.params;
-    const payload = req.body;
-    const assistant = await Assistant.findByPk(id);
+    const assistantId = req.user && req.user.assistantId;
+    if (!assistantId) return res.status(403).json({ message: '当前用户没有关联学助，无法自我更新' });
+
+    const { phone, currentPassword, newPassword } = req.body;
+
+    const assistant = await Assistant.findByPk(assistantId);
     if (!assistant) return res.status(404).json({ message: '未找到学助' });
 
-    await assistant.update(payload);
-    res.json(assistant);
+    const updates = {};
+    if (typeof phone === 'string') updates.phone = phone.trim();
+
+    // 修改密码逻辑：需验证当前密码
+    if (newPassword) {
+      const Account = require('../../db/models/accountModel');
+      const acc = await Account.findOne({ where: { assistantId } });
+      if (!acc) return res.status(404).json({ message: '未找到对应账户，无法修改密码' });
+      if (!currentPassword) return res.status(400).json({ message: '修改密码需提供 currentPassword' });
+      const match = await acc.matchPassword(currentPassword);
+      if (!match) return res.status(401).json({ message: '当前密码不正确' });
+      // 触发 model hook 自动加密
+      await acc.update({ password: newPassword });
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await assistant.update(updates);
+    }
+
+    const p = assistant.get ? assistant.get({ plain: true }) : assistant;
+    res.json({ message: '更新成功', phone: p.phone });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: '更新学助失败' });
+    res.status(500).json({ message: '自我更新失败', error: err.message });
   }
 };
+
+// NOTE: 管理端的完整更新接口由后台管理模块实现，客户端仅保留 /me 自我更新（手机号/密码）。
 
 // 删除（物理删除）
 exports.deleteAssistant = async (req, res) => {

@@ -7,6 +7,15 @@
 
 ---
 
+**客户端更新约束（重要）**
+
+- 客户端应用仅允许学助本人通过 `PUT /api/assistants/me` 修改自己的 **手机号** 与 **密码**；其它字段（如姓名、岗位、状态、hourlyRate、totalHours、notes 等）必须由管理后台统一维护，以避免权限混淆与重复实现。
+- 管理后台应在管理端实现管理员权限的完整学助更新接口（例如 `/api/admin/assistants/:id`），负责字段校验、审计日志、变更通知以及必要的审批流程。
+- 文档约定：前端仅集成与使用 `GET /api/assistants/:id`（只读）与 `PUT /api/assistants/me`（自我更新），所有会影响业务或权限的写操作请交由后台管理功能完成。
+
+如果需要，我可以为管理后台草拟管理员 API 规范草稿并加入到项目文档中。
+
+
 ## POST /api/user/login
 
 - 描述：学号登录（前端以学号作为账号进行登录），返回 JWT token。前端请求字段为 `studentId` 与 `password`。
@@ -379,4 +388,60 @@ curl -X GET "http://localhost:3000/api/attendance/summary" \
 
 ---
 
-维护者：客户端控制器实现者。
+## 学助资料与自我更新接口（/api/assistants）
+
+客户端可通过学助相关接口读取学助资料并由学助本人更新有限字段（仅手机号与密码）。以下为关键接口：
+
+### GET /api/assistants/:id
+
+- 描述：获取指定学助的详情（受保护，需要 `Authorization: Bearer <token>`）。管理员与普通用户均可访问（但普通用户通常只能查看自己的学助记录）。
+- 请求方式：`GET`
+- 响应示例（200）：
+
+```json
+{
+  "id": "<uuid>",
+  "studentId": "2025050303",
+  "name": "张三",
+  "position": "二级岗",
+  "isOnShift": false,
+  "status": "active",
+  "phone": "13812341234",
+  "hourlyRate": "12.00",
+  "totalHours": 24,
+  "createdAt": "2026-05-16T10:51:51.202Z",
+  "updatedAt": "2026-05-16T10:51:51.202Z",
+  "notes": null
+}
+```
+
+### PUT /api/assistants/me
+
+- 描述：学助本人自我更新接口，仅允许更新 `phone` 和 `password`（通过关联的 `Account` 修改密码）。受保护，需要 `Authorization: Bearer <token>`，且该 token 的 payload 应包含 `assistantId`（登录时会返回）。
+- 请求方式：`PUT`
+- 请求头：`Authorization: Bearer <token>`、`Content-Type: application/json`
+- 请求体示例：
+
+更新手机号：
+```json
+{ "phone": "13899998888" }
+```
+
+修改密码（需同时提供 `currentPassword`）：
+```json
+{ "currentPassword": "旧密码", "newPassword": "新密码123" }
+```
+
+- 成功响应（200）：
+
+```json
+{ "message": "更新成功", "phone": "13899998888" }
+```
+
+- 错误响应与注意事项：
+  - 400：修改密码时未提供 `currentPassword`。
+  - 401：`currentPassword` 验证失败（当前密码不正确）。
+  - 403：token 未包含 `assistantId` 或当前用户未关联学助。
+  - 404：找不到对应学助或账户记录。
+
+---

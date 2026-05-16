@@ -342,11 +342,95 @@ Authorization: Bearer <JWT_TOKEN>
 
 ## 更新学助 — PUT /api/assistants/:id
 
+**描述**：管理员更新学助的基本信息。**学号（studentId）不可修改**（它是学助的登录账号名）；其余字段均可按需传入，未传字段保持原值不变。
+
+**认证**：必需 `Bearer Token`
+
 **请求**：
 ```
 PUT /api/assistants/:id
 Authorization: Bearer <JWT_TOKEN>
 Content-Type: application/json
+```
+
+**请求体**（所有字段均为可选，至少提供一个）：
+```json
+{
+  "name": "张三",
+  "phone": "13800138000",
+  "positionLevel": "一级岗",
+  "status": "active",
+  "notes": "备注信息"
+}
+```
+
+**字段说明**：
+
+| 字段 | 类型 | 必填 | 说明 | 验证规则 |
+|------|------|------|------|---------|
+| `name` | string | 可选 | 姓名 | 2-10 个字符（中英文数字） |
+| `phone` | string | 可选 | 手机号 | 中国手机号（1 开头，11 位） |
+| `positionLevel` | string | 可选 | 岗位等级 | `"一级岗"`（15元/h）或 `"二级岗"`（12元/h）；后端会自动转换为 `position` + `hourlyRate` |
+| `status` | string | 可选 | 状态 | `"active"` 或 `"inactive"`；更改后 Account 的 `isActive` 会自动同步 |
+| `notes` | string | 可选 | 备注 | 任意文本 |
+
+**成功响应 (200)**：
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "studentId": "2025010101",
+  "name": "张三",
+  "phone": "13800138000",
+  "position": "一级岗",
+  "hourlyRate": "15.00",
+  "status": "active",
+  "isOnShift": false,
+  "notes": null,
+  "updatedAt": "2026-05-16T10:30:00.000Z"
+}
+```
+
+**错误响应**：
+
+验证失败 (400)：
+```json
+{
+  "message": "数据验证失败",
+  "errors": ["phone 格式不正确（11 位有效手机号）"]
+}
+```
+
+未找到学助 (404)：
+```json
+{ "message": "未找到学助" }
+```
+
+---
+
+## 重置密码 — POST /api/assistants/:id/reset-password
+
+**描述**：管理员将指定学助的登录密码重置为**学号后 6 位**，并标记 `forceChangePassword: true`（不支持管理员自定义密码）。学助下次登录后应自行修改密码。
+
+**认证**：必需 `Bearer Token`
+
+**请求**：
+```
+POST /api/assistants/:id/reset-password
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**请求体**：无
+
+**成功响应 (200)**：
+```json
+{ "message": "密码已重置为学号后六位（已强制下次修改）" }
+```
+
+**错误响应**：
+
+未找到学助或账户 (404)：
+```json
+{ "message": "未找到学助" }
 ```
 
 ---

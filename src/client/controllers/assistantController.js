@@ -227,7 +227,72 @@ exports.updateSelf = async (req, res) => {
   }
 };
 
-// NOTE: 管理端的完整更新接口由后台管理模块实现，客户端仅保留 /me 自我更新（手机号/密码）。
+// 管理员更新学助信息（name / phone / positionLevel / status / notes）
+// 学号（studentId）不允许修改，因为它同时是 Account.username 的登录凭据
+exports.updateAssistant = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, phone, positionLevel, status, notes } = req.body;
+
+    const assistant = await Assistant.findByPk(id);
+    if (!assistant) return res.status(404).json({ message: '未找到学助' });
+
+    const {
+      validateName,
+      validatePhone,
+      validatePositionLevel,
+      convertPositionLevel,
+    } = require('../../common/utils/validators');
+
+    const updates = {};
+    const errors = [];
+
+    if (name !== undefined) {
+      if (!validateName(name)) errors.push('name 格式不正确（2-10 个字符）');
+      else updates.name = name.trim();
+    }
+    if (phone !== undefined) {
+      if (!validatePhone(phone)) errors.push('phone 格式不正确（11 位有效手机号）');
+      else updates.phone = phone.trim();
+    }
+    if (positionLevel !== undefined) {
+      if (!validatePositionLevel(positionLevel)) errors.push('positionLevel 无效（应为"一级岗"或"二级岗"）');
+      else {
+        const { position, hourlyRate } = convertPositionLevel(positionLevel);
+        updates.position = position;
+        updates.hourlyRate = hourlyRate;
+      }
+    }
+    if (status !== undefined) {
+      if (!['active', 'inactive'].includes(status)) errors.push('status 无效（应为 active 或 inactive）');
+      else updates.status = status;
+    }
+    if (notes !== undefined) updates.notes = typeof notes === 'string' ? notes.trim() : null;
+
+    if (errors.length > 0) return res.status(400).json({ message: '数据验证失败', errors });
+    if (Object.keys(updates).length === 0) return res.status(400).json({ message: '未提供任何可更新字段' });
+
+    // afterUpdate hook 会自动同步 Account 的 isActive（根据 status 变化）
+    await assistant.update(updates);
+
+    const p = assistant.get({ plain: true });
+    res.json({
+      id: p.id,
+      studentId: p.studentId,
+      name: p.name,
+      phone: p.phone,
+      position: p.position,
+      hourlyRate: String(p.hourlyRate),
+      status: p.status,
+      isOnShift: Boolean(p.isOnShift),
+      notes: p.notes,
+      updatedAt: p.updatedAt,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: '更新学助失败', error: err.message });
+  }
+};
 
 // 删除（物理删除）
 exports.deleteAssistant = async (req, res) => {

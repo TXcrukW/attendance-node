@@ -18,6 +18,8 @@ router.get('/profile', protect, getAdminProfile);
 router.post('/sync-accounts', protect, adminOnly, syncAccounts);
 
 // ── 考勤管理路由 ──────────────────────────────────────────────
+// 当前在班学助看板（以 WorkSession 为准，实时准确）
+router.get('/attendance/online',                       protect, adminOnly, attendanceCtrl.getOnlineAssistants);
 // 查询所有学助工作会话（支持 assistantId / from / to / status / search 过滤）
 router.get('/attendance/sessions',                     protect, adminOnly, attendanceCtrl.getAllSessions);
 // 待审核列表（auto_closed / pending_confirm / 长期未关闭）

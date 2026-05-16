@@ -98,8 +98,8 @@ curl -X GET http://localhost:3000/api/user/profile \
 ### POST /api/attendance/punch
 
 - **描述**：学助上班打卡（`IN`）或下班打卡（`OUT`）。打卡时间**以服务端时间为准**，不信任客户端传入的时间戳，防止篡改。
-  - 上班打卡（`IN`）：系统在 `WorkSessions` 表创建一条状态为 `open` 的班次记录，同时写入 `PunchRecords`。
-  - 下班打卡（`OUT`）：系统关闭当前进行中的班次，计算工时，将状态更新为 `closed`。
+  - 上班打卡（`IN`）：系统在 `WorkSessions` 表创建一条状态为 `open` 的班次记录，同时写入 `PunchRecords`。服务端同时会将对应 `Assistant.isOnShift` 更新为 `true`。
+  - 下班打卡（`OUT`）：系统关闭当前进行中的班次，计算工时，将状态更新为 `closed`，服务端会将对应 `Assistant.isOnShift` 更新为 `false`。
 - **请求方式**：`POST`
 - **鉴权**：`Authorization: Bearer <token>`（token payload 需含 `assistantId`）
 - **请求体**：

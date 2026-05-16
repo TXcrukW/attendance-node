@@ -309,7 +309,42 @@ fetch('/api/assistants/import-file', {
 
 ---
 
-# 学助管理 - 其他接口
+## 管理员考勤 - 当前在班看板
+
+### GET /api/admin/attendance/online
+
+- 描述：返回当前所有处于进行中（`status` 为 `open` 或 `pending_confirm`）的 `WorkSession`，用于管理后台的“当前在班”看板。该接口以 `WorkSession` 为准，能实时反映谁在岗，避免依赖 `Assistant.isOnShift` 的不一致性。
+- 请求方式：`GET`
+- 鉴权：需管理员权限，Header 中携带 `Authorization: Bearer <admin_jwt>`。
+
+- 成功响应（200）：
+
+```json
+{
+  "data": [
+    {
+      "sessionId": "uuid",
+      "assistantId": "uuid",
+      "name": "张三",
+      "studentId": "20230001",
+      "position": "高年级",
+      "date": "2026-05-16",
+      "shiftType": "morning",
+      "shiftLabel": "上午班",
+      "startTime": "2026-05-16T08:05:00.000Z",
+      "onlineMinutes": 95,
+      "status": "open"
+    }
+  ],
+  "total": 1,
+  "serverTime": "2026-05-16T09:40:00.000Z"
+}
+```
+
+- 说明：返回的条目来自 `WorkSession` 表并包含关联的 `Assistant` 基本信息；`onlineMinutes` 为从 `startTime` 到服务器当前时间的分钟数估算，便于管理端展示在岗时长。
+
+
+## 学助管理 - 其他接口
 
 ## 获取列表 — GET /api/assistants
 

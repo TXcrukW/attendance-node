@@ -373,3 +373,48 @@ exports.getReport = async (req, res) => {
     res.status(500).json({ message: '报表查询失败' });
   }
 };
+
+// ─── 当前在班看板 ──────────────────────────────────────────────
+/**
+ * GET /api/admin/attendance/online
+ *
+ * 返回当前所有 status 为 open / pending_confirm 的学助及其班次信息，
+ * 以 WorkSession 为准（不依赖 Assistant.isOnShift），保证实时准确。
+ */
+exports.getOnlineAssistants = async (req, res) => {
+  try {
+    const now = new Date();
+
+    const sessions = await WorkSession.findAll({
+      where:  { status: { [Op.in]: ['open', 'pending_confirm'] } },
+      order:  [['startTime', 'ASC']],
+      include: [{
+        model:      Assistant,
+        attributes: ['id', 'name', 'studentId', 'position'],
+      }],
+    });
+
+    const data = sessions.map((s) => {
+      const p = s.get({ plain: true });
+      const onlineMinutes = Math.round((now - new Date(p.startTime)) / 60000);
+      return {
+        sessionId:     p.id,
+        assistantId:   p.assistantId,
+        name:          p.Assistant ? p.Assistant.name : null,
+        studentId:     p.Assistant ? p.Assistant.studentId : null,
+        position:      p.Assistant ? p.Assistant.position : null,
+        date:          p.date,
+        shiftType:     p.shiftType,
+        shiftLabel:    SHIFT_LABELS_CN[p.shiftType] || p.shiftType,
+        startTime:     p.startTime,
+        onlineMinutes,
+        status:        p.status,
+      };
+    });
+
+    res.json({ data, total: data.length, serverTime: now.toISOString() });
+  } catch (err) {
+    console.error('[admin.attendance.getOnlineAssistants]', err);
+    res.status(500).json({ message: '查询在班列表失败' });
+  }
+};

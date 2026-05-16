@@ -67,6 +67,8 @@ exports.punch = async (req, res) => {
         );
 
         await t.commit();
+        // 同步学助在班状态
+        await Assistant.update({ isOnShift: true }, { where: { id: assistantId } });
         return res.status(201).json({
           message: `上班打卡成功（${SHIFT_LABELS_CN[shiftType]}）`,
           sessionId:     session.id,
@@ -97,6 +99,8 @@ exports.punch = async (req, res) => {
       );
 
       await t.commit();
+      // 同步学助下班状态
+      await Assistant.update({ isOnShift: false }, { where: { id: assistantId } });
       return res.json({
         message: '下班打卡成功',
         sessionId:      openSession.id,

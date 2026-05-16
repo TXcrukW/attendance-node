@@ -15,6 +15,7 @@
 
 const { Op } = require('sequelize');
 const WorkSession = require('../db/models/workSession');
+const Assistant   = require('../db/models/assistantModel');
 const {
   SHIFT_REST_MINUTES,
   SHIFT_LABELS_CN,
@@ -77,6 +78,8 @@ async function autoCloseSessions() {
       status:          'auto_closed',
       autoCloseReason: `系统自动收口：${shiftLabel}预计 ${restLabel} 下班，超过 ${GRACE_MINUTES} 分钟宽限期仍未打卡`,
     });
+    // 同步学助下班状态
+    await Assistant.update({ isOnShift: false }, { where: { id: session.assistantId } });
 
     closedCount++;
     console.log(

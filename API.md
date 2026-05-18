@@ -1,388 +1,129 @@
-# 考勤系统 API 完整文档
+﻿# 管理后台 API 文档（仅管理端）
 
-**最后更新**：2026-05-18 | **版本**: 2.1
+最后核验：2026-05-18（基于当前代码）
 
-## 📋 快速导航
+> 客户端接口请查看 `API_CLIENT.md`。本文档仅包含管理后台使用的接口。
 
-- **🔐 [管理员认证](#管理员认证)** - 登录和授权管理
-- **👥 [单个学助添加](#学助管理---单个添加)** - 添加单个学助
-- **📊 [批量导入](#学助管理---批量导入)** - 支持 JSON、CSV、Excel 导入
-- **⚙️ [其他接口](#学助管理---其他接口)** - 查询、更新、删除等
-- **🔔 [上/下班通知确认流程](#上下班通知确认流程)** - 管理员触发 → 学助弹窗确认 → 自动打卡
-- **📡 [在班看板实时更新](#管理员考勤---当前在班看板)** - SSE 长连接 / 轮询两种方案
-- **📁 [Excel/CSV 处理完整指南](#excelcsv-处理流程)** - **前端如何准备数据，后端如何处理文件**
-- **💻 [前端集成代码](#前端集成示例)** - 完整的 HTML + JS 示例
-- **🔧 [后端配置](#后端配置说明)** - 依赖、路由、中间件配置
+## 1. 通用说明
+
+### 1.1 基础信息
+
+- 管理端前缀：`/api/admin`
+- 学助管理前缀：`/api/assistants`
+- 数据格式：`application/json`
+
+### 1.2 鉴权
+
+- 受保护接口统一使用：`Authorization: Bearer <admin_token>`
+- 管理员登录 token payload：`{ id, sid }`
+- 服务端会校验 `sid` 与数据库 `AdminUser.currentSessionId`，旧 token 自动失效。
+
+### 1.3 错误码约定
+
+- `400` 参数错误
+- `401` 未认证或 token 失效
+- `403` 无权限（非管理员）
+- `404` 资源不存在
+- `409` 状态冲突
+- `410` 通知过期
+- `500` 服务器错误
 
 ---
 
-# 管理员认证
+## 2. 管理员认证与运维（/api/admin）
 
-## 登录 — POST /api/admin/login
+### 2.1 `POST /api/admin/login`
 
-**描述**：管理员使用用户名和密码登录，成功后返回 JWT 访问令牌。
+- 功能描述：管理员登录并获取访问 token。
+- 使用场景：管理后台登录页提交用户名密码。
+- 鉴权：无需。
 
-**请求**：
-```
-POST /api/admin/login
-Content-Type: application/json
-```
+请求体字段：
 
-**请求体**：
-```json
-{
-  "username": "admin",
-  "password": "123456"
-}
-```
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `username` | string | 是 | 管理员用户名 |
+| `password` | string | 是 | 管理员密码 |
 
-**成功响应 (200)**：
+成功响应（200）：
+
 ```json
 {
   "status": "success",
-  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "id": "uuid",
   "username": "admin",
   "role": "admin",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "token": "jwt"
 }
 ```
 
-**错误响应**：
+响应字段说明：
 
-参数缺失 (400)：
+| 字段 | 说明 |
+|---|---|
+| `status` | 固定为 `success` |
+| `id` | 管理员 ID |
+| `username` | 管理员用户名 |
+| `role` | 当前为 `admin` |
+| `token` | 后续接口调用的 Bearer Token |
+
+错误码：`400`、`401`、`500`
+
+### 2.2 `GET /api/admin/profile`
+
+- 功能描述：获取当前登录管理员资料。
+- 使用场景：后台页面初始化时展示当前管理员信息。
+- 鉴权：需要管理员 token。
+
+请求参数：无。
+
+成功响应（200）：返回管理员对象（不含密码）。
+
+常见错误码：`401`、`403`、`404`、`500`
+
+### 2.3 `POST /api/admin/sync-accounts`
+
+- 功能描述：清理 `Accounts` 表中失联学助账户（`assistantId` 已不存在）。
+- 使用场景：运维修复脏数据、后台误删后的数据对齐。
+- 鉴权：需要管理员 token。
+
+请求参数：无。
+
+成功响应（200）示例：
+
 ```json
 {
-  "message": "用户名和密码为必填项"
-}
-```
-
-认证失败 (401)：
-```json
-{
-  "message": "用户名或密码无效"
-}
-```
-
----
-
-## 获取管理员资料 — GET /api/admin/profile
-
-**描述**：获取当前登录管理员的资料。
-
-**请求**：
-```
-GET /api/admin/profile
-Authorization: Bearer <JWT_TOKEN>
-```
-
-**成功响应 (200)**：返回管理员信息（不含密码）
-
-### Token 说明
-- 登录后返回的 `token` 为 JWT
-- 所有受保护接口需在 Header 中通过 `Authorization: Bearer <token>` 携带
-- 环境变量：
-  - `JWT_SECRET`：签名密钥
-  - `JWT_EXPIRES_IN`：过期时间（如 `168h`，即 168 小时 / 7 天）
-
----
-
-# 学助管理 - 单个添加
-
-## 创建学助 — POST /api/assistants
-
-**描述**：添加单个学助，对应前端表单示例的需求。
-
-**认证**：必需 `Bearer Token`
-
-**请求**：
-```
-POST /api/assistants
-Authorization: Bearer <JWT_TOKEN>
-Content-Type: application/json
-```
-
-**请求体**：
-```json
-{
-  "studentId": "20230001",
-  "name": "张三",
-  "phone": "13800138000",
-  "positionLevel": "一级岗"
-}
-```
-
-### 字段说明
-
-| 字段 | 类型 | 必填 | 说明 | 验证规则 |
-|------|------|------|------|---------|
-| `studentId` | string | ✅ | 学号 | 8-12 位字母或数字 |
-| `name` | string | ✅ | 姓名 | 2-50 字符，支持中英文 |
-| `phone` | string | ✅ | 手机号 | 中国号码（1 开头，11 位） |
-| `positionLevel` | string | ✅ | 岗位等级 | "一级岗" 或 "二级岗" |
-
-
-### 岗位等级
-
-- `一级岗` - 一级岗位
-- `二级岗` - 二级岗位
-
-**成功响应 (201)**：
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "studentId": "20230001",
-  "name": "张三",
-  "phone": "13800138000",
-  "position": "一级岗",
-  "status": "active",
-  "isOnShift": false,
-  "createdAt": "2024-05-14T10:30:00.000Z"
-}
-```
-
-**错误响应**：
-
-验证失败 (400)：
-```json
-{
-  "message": "数据验证失败",
-  "errors": [
-    "studentId 格式不正确（应为 8-12 位字母或数字）",
-    "phone 格式不正确（应为有效的中国手机号）"
+  "message": "同步完成，已删除 2 条孤立账户",
+  "deleted": 2,
+  "accounts": [
+    { "id": "uuid", "username": "20230001", "assistantId": "uuid" }
   ]
 }
 ```
 
-学号重复 (409)：
-```json
-{
-  "message": "学号已存在",
-  "existingId": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
+响应字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `message` | 同步结果描述 |
+| `deleted` | 删除数量 |
+| `accounts` | 被删除账户列表 |
+
+错误码：`401`、`403`、`500`
 
 ---
 
-# 学助管理 - 批量导入
+## 3. 管理端考勤（/api/admin/attendance）
 
-## JSON 批量导入 — POST /api/assistants/import
+### 3.1 `GET /api/admin/attendance/online`
 
-**描述**：通过 JSON 数组批量导入学助，支持两种模式。
+- 功能描述：获取当前在班看板快照。
+- 使用场景：管理后台“当前在班”列表展示。
+- 鉴权：需要管理员 token。
 
-**认证**：必需 `Bearer Token`
+查询参数：无。
 
-**请求**：
-```
-POST /api/assistants/import
-Authorization: Bearer <JWT_TOKEN>
-Content-Type: application/json
-```
-
-**请求体**：
-```json
-{
-  "data": [
-    {
-      "studentId": "20230001",
-      "name": "张三",
-      "phone": "13800138000",
-      "positionLevel": "一级岗"
-    },
-    {
-      "studentId": "20230002",
-      "name": "李四",
-      "phone": "13800138001",
-      "positionLevel": "二级岗"
-    }
-  ],
-  "mode": "upsert",
-  "fieldMapping": {}
-}
-```
-
-### 参数说明
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `data` | array | ✅ | - | 学助数据数组，最多 1000 行 |
-| `mode` | string | ❌ | `insert` | `insert`（仅新增）或 `upsert`（新增或更新） |
-| `fieldMapping` | object | ❌ | `{}` | 字段名映射 |
-
-### 导入模式
-
-| 模式 | 行为 |
-|------|------|
-| `insert` | 仅新增：学号存在则跳过 |
-| `upsert` | 新增或更新：学号存在则更新，否则新增（**推荐**） |
-
-### 字段映射示例
-
-如果数据来自不同格式，用 `fieldMapping` 进行列名映射：
-
-```json
-{
-  "data": [...],
-  "fieldMapping": {
-    "员工ID": "studentId",
-    "全名": "name",
-    "联系方式": "phone",
-    "职位级别": "positionLevel",
-    "公司邮箱": "email"
-  }
-}
-```
-
-**成功响应 (200)**：
-```json
-{
-  "summary": {
-    "total": 10,
-    "created": 8,
-    "updated": 1,
-    "skipped": 0,
-    "failed": 1,
-    "success": 9
-  },
-  "errors": [
-    {
-      "studentId": "20230010",
-      "name": "王五",
-      "reason": "phone 格式不正确"
-    }
-  ],
-  "invalidRows": [
-    {
-      "rowIndex": 7,
-      "studentId": "20230003",
-      "reason": "导入数据中存在重复学号"
-    }
-  ],
-  "message": "导入完成: 成功 9 行，失败 1 行",
-  "timestamp": "2024-05-14T10:32:00.000Z"
-}
-```
-
----
-
-## 文件上传导入 — POST /api/assistants/import-file
-
-**描述**：上传 CSV 或 Excel 文件进行批量导入。
-
-**认证**：必需 `Bearer Token`
-
-**请求**：
-```
-POST /api/assistants/import-file
-Authorization: Bearer <JWT_TOKEN>
-Content-Type: multipart/form-data
-```
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `file` | file | ✅ | CSV/Excel 文件（.csv, .xlsx, .xls） |
-| `mode` | string | ❌ | 导入模式（insert/upsert） |
-| `fieldMapping` | string | ❌ | JSON 字符串格式的字段映射 |
-
-**支持的文件格式**：
-- `.csv` — CSV 文件（UTF-8 编码，逗号分隔）
-- `.xlsx` — Excel 2007+
-- `.xls` — Excel 97-2003
-
-**前端上传示例**：
-
-```javascript
-const formData = new FormData();
-formData.append('file', fileInput.files[0]);
-formData.append('mode', 'upsert');
-
-const token = localStorage.getItem('token');
-fetch('/api/assistants/import-file', {
-  method: 'POST',
-  body: formData,
-  headers: { 'Authorization': `Bearer ${token}` }
-})
-  .then(res => res.json())
-  .then(data => console.log('导入结果:', data));
-```
-
-**成功响应 (200)**：与 POST /api/assistants/import 相同
-
----
-
-# 上/下班通知确认流程
-
-> 这是 v2.1 引入的核心功能：管理后台点击"上班/下班"按钮后，学助客户端弹出确认弹窗，学助选择确认或拒绝，系统根据响应自动完成打卡，管理端实时看板同步刷新。
-
-## 完整接口调用时序
-
-```
-管理后台                          后端服务                        学助客户端
-─────────────                    ─────────                      ──────────────────────
-1. 点击"下班"按钮
-   POST /api/admin/assistants/:id/shift-notice
-   { action:"clock_out" }
-                               → 创建 ShiftNotification(pending)
-                               → SSE 广播在班看板
-                                                               2. 每 10s 轮询
-                                                                  GET /api/attendance/shift-notice
-                                                               ← { notice:{action:"clock_out",secondsLeft:280} }
-                                                                  弹出确认弹窗
-3. 可查询通知进度
-   GET /api/admin/assistants/:id/shift-notice
-   ← { notice:{ status:"pending" } }
-                                                               4. 学助点"确认"
-                                                                  POST /api/attendance/shift-notice/respond
-                                                                  { notificationId, response:"confirmed" }
-                               → 自动 OUT 打卡
-                               → WorkSession closed
-                               → SSE 广播刷新看板              ← { message:"下班打卡成功" }
-5. 管理端看板自动刷新（无需手动操作）
-```
-
-## 管理后台需调用的接口
-
-注：管理后台应在管理端实现管理员权限的完整学助更新接口（例如 `/api/admin/assistants/:id`），负责字段校验、审计日志、变更通知以及必要的审批流程。
-
-| 功能 | 方法 | 路径 | 说明 |
-|------|------|------|------|
-| 向学助发上/下班请求 | `POST` | `/api/admin/assistants/:id/shift-notice` | **替代旧 `/api/assistants/:id/status`** |
-| 查询通知响应状态 | `GET` | `/api/admin/assistants/:id/shift-notice` | 可选，SSE 连接的情况下自动感知 |
-| 订阅在班看板实时推送 | `GET` | `/api/admin/attendance/online/stream` | SSE 长连接，推荐方式 |
-| 获取在班快照（轮询备选） | `GET` | `/api/admin/attendance/online` | 每 30s 调一次即可 |
-
-## 学助客户端需调用的接口
-
-| 功能 | 方法 | 路径 | 频率 | 说明 |
-|------|------|------|------|------|
-| 轮询待处理通知 | `GET` | `/api/attendance/shift-notice` | 每 10s | 有通知则弹窗 |
-| 响应通知 | `POST` | `/api/attendance/shift-notice/respond` | 用户操作时 | `confirmed` 自动打卡，`declined` 拒绝不打卡 |
-| 学助自主打卡 | `POST` | `/api/attendance/punch` | 用户操作时 | 与通知流程独立，均产生 WorkSession |
-| 查询当前考勤状态 | `GET` | `/api/attendance/status` | 页面加载 / 定时 | 获取当前班次、是否需要休息提醒 |
-
-## 关键设计说明
-
-> **为什么废弃 `POST /api/assistants/:id/status`？**
->
-> 旧接口仅写 `Assistant.isOnShift` 布尔字段，不创建 `WorkSession` 也不创建 `PunchRecord`：
-> - 在班看板查询的是 `WorkSession` 表，旧接口改动完全不可见
-> - 工时统计、薪资估算均依赖 `WorkSession`，旧接口操作后无工时记录
-> - SSE 广播以 `WorkSession` 变化为触发点，旧接口不触发任何广播
->
-> 新流程通过通知 → 打卡的完整链路，确保数据一致性和可审计性。
-
----
-
-## 管理员考勤 - 当前在班看板
-
-### GET /api/admin/attendance/online
-
-- 描述：返回当前所有处于进行中（`status` 为 `open` 或 `pending_confirm`）的 `WorkSession`，用于管理后台的“当前在班”看板。该接口以 `WorkSession` 为准，能实时反映谁在岗，避免依赖 `Assistant.isOnShift` 的不一致性。
-- 请求方式：`GET`
-- 鉴权：需管理员权限，Header 中携带 `Authorization: Bearer <admin_jwt>`。
-
-- 成功响应（200）：
+成功响应（200）示例：
 
 ```json
 {
@@ -392,100 +133,295 @@ fetch('/api/assistants/import-file', {
       "assistantId": "uuid",
       "name": "张三",
       "studentId": "20230001",
-      "position": "高年级",
-      "date": "2026-05-16",
-      "shiftType": "morning",
-      "shiftLabel": "上午班",
-      "startTime": "2026-05-16T08:05:00.000Z",
-      "onlineMinutes": 95,
+      "position": "一级岗",
+      "date": "2026-05-18",
+      "shiftType": "afternoon",
+      "shiftLabel": "下午班",
+      "startTime": "2026-05-18T08:00:00.000Z",
+      "onlineMinutes": 90,
       "status": "open"
     }
   ],
   "total": 1,
-  "serverTime": "2026-05-16T09:40:00.000Z"
+  "serverTime": "2026-05-18T09:30:00.000Z"
 }
 ```
 
-- 说明：返回的条目来自 `WorkSession` 表并包含关联的 `Assistant` 基本信息；`onlineMinutes` 为从 `startTime` 到服务器当前时间的分钟数估算，便于管理端展示在岗时长。
+字段说明：
 
----
+| 字段 | 说明 |
+|---|---|
+| `data` | 在班会话列表（`open/pending_confirm`） |
+| `total` | 在班人数 |
+| `serverTime` | 服务器时间 |
 
-### GET /api/admin/attendance/online/stream（SSE 实时推送）
+错误码：`401`、`403`、`500`
 
-- 描述：Server-Sent Events 长连接。管理前端订阅后，立即收到一次当前在班快照，此后每 30 秒或任意学助状态发生变化（打卡、通知确认/拒绝）时即时推送，无需高频轮询。
-- 鉴权：同上，携带管理员 JWT。
+### 3.2 `GET /api/admin/attendance/online/stream`
 
-**前端接入示例（fetch + ReadableStream，支持自定义 Authorization header）**：
+- 功能描述：通过 SSE 持续推送在班快照。
+- 使用场景：看板实时刷新，减少轮询压力。
+- 鉴权：需要管理员 token。
 
-```javascript
-async function subscribeOnlineStream(token, onData) {
-  const response = await fetch('/api/admin/attendance/online/stream', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+请求参数：无。
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      const line = part.replace(/^data: /, '').trim();
-      if (line) {
-        try { onData(JSON.parse(line)); } catch (_) {}
-      }
-    }
-  }
-}
+推送说明：
 
-// 使用
-subscribeOnlineStream(localStorage.getItem('token'), ({ data, total, serverTime }) => {
-  renderOnlineTable(data);
-  console.log(`在班 ${total} 人，服务端时间 ${serverTime}`);
-});
-```
+| 项目 | 说明 |
+|---|---|
+| 首次连接 | 立即推送一次快照 |
+| 心跳/定时 | 每 30 秒推送一次 |
+| 事件触发 | 打卡、通知响应后会立即推送 |
 
-> **轮询备选方案**：若不需要 SSE，每 30 秒调用一次 `GET /api/admin/attendance/online` 即可。
+推送事件名：`online`
 
----
+错误码：`401`、`403`
 
-### POST /api/admin/assistants/:id/shift-notice（向学助发送上/下班确认请求）
+### 3.3 `GET /api/admin/attendance/sessions`
 
-- 描述：管理员向指定学助推送上班或下班确认通知，学助客户端通过轮询感知后弹出弹窗。通知有效期 **5 分钟**，发送新通知会自动作废该学助之前未处理的通知。
-- 鉴权：需管理员 JWT。
+- 功能描述：分页查询全局班次记录。
+- 使用场景：管理端考勤流水查询页。
+- 鉴权：需要管理员 token。
 
-**请求体**：
-```json
-{ "action": "clock_out" }
-```
+查询参数：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `action` | string | `clock_in`（要求上班）或 `clock_out`（要求下班） |
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `assistantId` | string | 否 | 指定学助 |
+| `from` | string | 否 | 起始日期 `YYYY-MM-DD` |
+| `to` | string | 否 | 结束日期 `YYYY-MM-DD` |
+| `status` | string | 否 | 班次状态过滤 |
+| `search` | string | 否 | 按学号/姓名模糊搜索 |
+| `page` | number | 否 | 页码，默认 `1` |
+| `limit` | number | 否 | 每页条数，默认 `20` |
 
-**成功响应（201）**：
+成功响应（200）：
+
 ```json
 {
-  "message": "已向张三发送下班确认请求，等待学助响应",
+  "data": [
+    {
+      "id": "uuid",
+      "assistantId": "uuid",
+      "date": "2026-05-18",
+      "shiftType": "morning",
+      "shiftLabel": "上午班",
+      "durationMinutes": 180,
+      "hours": "3.00",
+      "status": "closed",
+      "Assistant": {
+        "id": "uuid",
+        "name": "张三",
+        "studentId": "20230001",
+        "position": "一级岗"
+      }
+    }
+  ],
+  "total": 100,
+  "page": 1,
+  "limit": 20
+}
+```
+
+错误码：`401`、`403`、`500`
+
+### 3.4 `GET /api/admin/attendance/pending`
+
+- 功能描述：查询待审核异常会话。
+- 使用场景：管理端异常处理列表。
+- 鉴权：需要管理员 token。
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `page` | number | 否 | 页码，默认 `1` |
+| `limit` | number | 否 | 每页条数，默认 `20` |
+
+成功响应（200）：返回 `status in (auto_closed, pending_confirm, open)` 的会话。
+
+补充字段：
+
+| 字段 | 说明 |
+|---|---|
+| `statusTip` | 状态中文提示，便于前端直接展示 |
+
+错误码：`401`、`403`、`500`
+
+### 3.5 `GET /api/admin/attendance/report`
+
+- 功能描述：按学助维度查询工时报表。
+- 使用场景：工时统计、薪资估算页面。
+- 鉴权：需要管理员 token。
+
+查询参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `from` | string | 否 | 统计起始日期 |
+| `to` | string | 否 | 统计结束日期 |
+| `page` | number | 否 | 页码，默认 `1` |
+| `limit` | number | 否 | 每页条数，默认 `50` |
+
+成功响应（200）字段：
+
+| 字段 | 说明 |
+|---|---|
+| `id/studentId/name/position` | 学助基本信息 |
+| `hourlyRate` | 时薪字符串 |
+| `totalMinutes/totalHours` | 工时统计 |
+| `estimatedWage` | 估算工资 |
+| `autoClosedCount` | 自动收口数量 |
+| `hasAnomalies` | 是否存在异常 |
+
+错误码：`401`、`403`、`500`
+
+### 3.6 `GET /api/admin/attendance/assistants/:id/sessions`
+
+- 功能描述：查询单个学助的班次明细。
+- 使用场景：学助详情页查看历史班次。
+- 鉴权：需要管理员 token。
+
+路径参数：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 学助 ID |
+
+查询参数：`from`、`to`、`status`、`page`、`limit`
+
+成功响应（200）：
+
+```json
+{
+  "assistant": {
+    "id": "uuid",
+    "name": "张三",
+    "studentId": "20230001",
+    "position": "一级岗",
+    "hourlyRate": "15.00"
+  },
+  "data": [],
+  "total": 0,
+  "page": 1,
+  "limit": 20
+}
+```
+
+错误码：`401`、`403`、`404`、`500`
+
+### 3.7 `GET /api/admin/attendance/assistants/:id/summary`
+
+- 功能描述：查询单个学助工时汇总（含按日明细）。
+- 使用场景：核算某学助的工时与估算工资。
+- 鉴权：需要管理员 token。
+
+路径参数：`id`（学助 ID）
+
+查询参数：`from`、`to`
+
+成功响应（200）关键字段：
+
+| 字段 | 说明 |
+|---|---|
+| `assistant` | 学助信息 |
+| `totalMinutes/totalHours` | 总工时 |
+| `estimatedWage` | 估算工资（不含 `auto_closed`） |
+| `sessionCount` | 会话总数 |
+| `autoClosedCount` | 自动收口条数 |
+| `correctedCount` | 人工纠正条数 |
+| `byDate` | 按日汇总与会话列表 |
+
+错误码：`401`、`403`、`404`、`500`
+
+### 3.8 `PATCH /api/admin/attendance/sessions/:id`
+
+- 功能描述：人工纠正班次时间并记录纠正原因。
+- 使用场景：补录漏打卡、纠正错误时间。
+- 鉴权：需要管理员 token。
+
+路径参数：
+
+| 字段 | 说明 |
+|---|---|
+| `id` | WorkSession ID |
+
+请求体字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `startTime` | string | 否 | 新上班时间（ISO） |
+| `endTime` | string | 否 | 新下班时间（ISO） |
+| `correctionNote` | string | 是 | 纠正原因 |
+
+成功响应（200）示例：
+
+```json
+{
+  "message": "纠正成功",
+  "session": {
+    "id": "uuid",
+    "status": "corrected",
+    "correctionNote": "学助漏打卡，按值班记录修正",
+    "durationMinutes": 240,
+    "hours": "4.00"
+  }
+}
+```
+
+错误码：`400`、`401`、`403`、`404`、`500`
+
+---
+
+## 4. 管理员通知学助打卡（/api/admin/assistants）
+
+### 4.1 `POST /api/admin/assistants/:id/shift-notice`
+
+- 功能描述：向指定学助发送上/下班确认通知。
+- 使用场景：管理员催促学助上班或下班。
+- 鉴权：需要管理员 token。
+
+路径参数：`id`（学助 ID）
+
+请求体字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `action` | string | 是 | `clock_in` 或 `clock_out` |
+
+成功响应（201）示例：
+
+```json
+{
+  "message": "已向 张三 发送下班确认请求，等待学助响应",
   "notificationId": "uuid",
   "action": "clock_out",
   "actionLabel": "下班",
   "assistantName": "张三",
   "assistantId": "uuid",
-  "expiresAt": "2026-05-16T09:45:00.000Z"
+  "expiresAt": "2026-05-18T10:00:00.000Z"
 }
 ```
 
----
+字段说明：
 
-### GET /api/admin/assistants/:id/shift-notice（查询学助最新通知状态）
+| 字段 | 说明 |
+|---|---|
+| `notificationId` | 通知 ID |
+| `expiresAt` | 过期时间（5 分钟） |
 
-- 描述：管理员查询指定学助最近一条通知的状态，确认学助是否已响应。
+错误码：`400`、`401`、`403`、`404`、`500`
 
-**成功响应（200）**：
+### 4.2 `GET /api/admin/assistants/:id/shift-notice`
+
+- 功能描述：查询指定学助最近一条通知状态。
+- 使用场景：管理端查看通知处理进度。
+- 鉴权：需要管理员 token。
+
+路径参数：`id`（学助 ID）
+
+成功响应（200）示例：
+
 ```json
 {
   "notice": {
@@ -493,614 +429,227 @@ subscribeOnlineStream(localStorage.getItem('token'), ({ data, total, serverTime 
     "action": "clock_out",
     "actionLabel": "下班",
     "status": "confirmed",
-    "expiresAt": "2026-05-16T09:45:00.000Z",
-    "respondedAt": "2026-05-16T09:42:00.000Z",
-    "createdAt": "2026-05-16T09:40:00.000Z"
+    "expiresAt": "2026-05-18T10:00:00.000Z",
+    "respondedAt": "2026-05-18T09:57:00.000Z",
+    "createdAt": "2026-05-18T09:55:00.000Z"
   }
 }
 ```
 
-`status` 可能值：`pending`（待响应）、`confirmed`（已确认）、`declined`（已拒绝）、`expired`（超时作废）。
+`status` 枚举：`pending|confirmed|declined|expired`
+
+错误码：`401`、`403`、`500`
 
 ---
 
-### PATCH /api/admin/attendance/sessions/:id（人工纠正工作会话）
+## 5. 学助管理（后台使用，前缀 /api/assistants）
 
-- 描述：管理员可人工修正指定 `WorkSession` 的 `startTime` / `endTime`，并填写 `correctionNote` 作为审计说明。接口会将会话 `status` 标记为 `corrected` 并重新计算 `durationMinutes`。
-- 鉴权：需管理员 JWT。
+### 5.1 `GET /api/assistants`
 
-**请求体**（JSON，可选字段）：
-```json
-{ "startTime"?: "2026-05-16T08:00:00.000Z", "endTime"?: "2026-05-16T12:00:00.000Z", "correctionNote": "学助未打卡，按记录修正" }
-```
+- 功能描述：分页查询学助列表。
+- 使用场景：学助管理列表页。
+- 鉴权：需要登录 token（管理后台使用管理员 token）。
 
-**说明**：`correctionNote` 必填且不可为空；若提供 `startTime`/`endTime`，服务端将以提供的时间重新计算 `durationMinutes`，并在成功后返回更新后的会话对象。
+查询参数：
 
-**成功响应（200）示例**：
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `page` | number | 否 | 页码，默认 `1` |
+| `limit` | number | 否 | 每页条数，默认 `10` |
+| `search` | string | 否 | 按学号/姓名/手机号搜索 |
+| `status` | string | 否 | `active` / `inactive` |
+
+成功响应（200）：`{ data, total, page, limit }`
+
+错误码：`401`、`500`
+
+### 5.2 `GET /api/assistants/stats`
+
+- 功能描述：获取学助统计信息。
+- 使用场景：后台首页统计卡片。
+- 鉴权：需要登录 token。
+
+成功响应（200）：
+
 ```json
 {
-  "message": "纠正成功",
-  "session": {
-    "id": "uuid",
-    "assistantId": "uuid",
-    "date": "2026-05-16",
-    "shiftType": "afternoon",
-    "shiftLabel": "下午班",
-    "startTime": "2026-05-16T08:00:00.000Z",
-    "endTime": "2026-05-16T12:00:00.000Z",
-    "durationMinutes": 240,
-    "hours": "4.00",
-    "status": "corrected",
-    "correctionNote": "学助未打卡，按记录修正",
-    "correctedBy": "admin-user-id"
-  }
+  "total": 20,
+  "active": 18,
+  "inactive": 2,
+  "totalHours": 345.5
 }
 ```
 
-**错误响应**：
-- 400：缺少或空的 `correctionNote`，或 `endTime` 早于 `startTime`。
-- 404：会话不存在。
-- 500：服务器错误。
+错误码：`401`、`500`
 
+### 5.3 `POST /api/assistants`
 
-### GET /api/attendance/shift-notice 与 POST /api/attendance/shift-notice/respond（学助端接口）
+- 功能描述：创建单个学助（并自动创建关联账户）。
+- 使用场景：后台手动新增学助。
+- 鉴权：需要登录 token。
 
-> 📄 这两个接口属于**学助客户端**，完整参数、响应结构和前端示例代码请查阅 [API_CLIENT.md](./API_CLIENT.md) 考勤模块中的对应章节。
->
-> | 接口 | 方法 | 用途 | 鉴权 |
-> |------|------|------|------|
-> | `/api/attendance/shift-notice` | `GET` | 学助每 10s 轮询，有通知则弹窗确认 | 学助 JWT |
-> | `/api/attendance/shift-notice/respond` | `POST` | 学助提交 `confirmed`/`declined`，`confirmed` 时自动打卡并触发 SSE 广播 | 学助 JWT |
+请求体字段：
 
----
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `studentId` | string | 是 | 学号，当前规则为 10 位数字 |
+| `name` | string | 是 | 姓名（2-10 字符） |
+| `phone` | string | 是 | 11 位手机号 |
+| `positionLevel` | string | 是 | `一级岗` / `二级岗` |
+| `notes` | string | 否 | 备注 |
 
-## 学助管理 - 其他接口
+成功响应（201）：返回新建学助对象。
 
-## 获取列表 — GET /api/assistants
+错误码：`400`、`409`、`500`
 
-**请求**：
-```
-GET /api/assistants?search=张&page=1&limit=10&status=active
-Authorization: Bearer <JWT_TOKEN>
-```
+### 5.4 `POST /api/assistants/import`
 
-**查询参数**：
+- 功能描述：JSON 批量导入学助。
+- 使用场景：批量初始化或批量更新。
+- 鉴权：需要登录 token。
 
-| 参数 | 说明 |
-|------|------|
-| `page` | 页码（默认 1） |
-| `limit` | 每页数量（默认 10） |
-| `search` | 按学号/姓名/手机/邮箱搜索 |
-| `status` | 按状态过滤（`active` 或 `inactive`） |
+请求体字段：
 
----
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `data` | array | 是 | 导入数组，最多 1000 条 |
+| `mode` | string | 否 | `insert` 或 `upsert`，默认 `insert` |
+| `fieldMapping` | object | 否 | 字段映射 |
 
-## 获取详情 — GET /api/assistants/:id
+成功响应（200）字段：
 
-**请求**：
-```
-GET /api/assistants/:id
-Authorization: Bearer <JWT_TOKEN>
-```
+| 字段 | 说明 |
+|---|---|
+| `summary` | 汇总统计（created/updated/skipped/failed/success） |
+| `errors` | 失败明细 |
+| `invalidRows` | 校验失败行 |
+| `message` | 文本摘要 |
 
----
+错误码：`400`、`500`
 
-## 更新学助 — PUT /api/assistants/:id
+### 5.5 `GET /api/assistants/:id`
 
-**描述**：管理员更新学助的基本信息。**学号（studentId）不可修改**（它是学助的登录账号名）；其余字段均可按需传入，未传字段保持原值不变。
+- 功能描述：查询学助详情。
+- 使用场景：学助详情页。
+- 鉴权：需要登录 token。
 
-**认证**：必需 `Bearer Token`
+路径参数：`id`（学助 ID）
 
-**请求**：
-```
-PUT /api/assistants/:id
-Authorization: Bearer <JWT_TOKEN>
-Content-Type: application/json
-```
+成功响应（200）：返回学助详情对象。
 
-**请求体**（所有字段均为可选，至少提供一个）：
+错误码：`401`、`404`、`500`
+
+### 5.6 `PUT /api/assistants/:id`
+
+- 功能描述：更新学助信息。
+- 使用场景：后台编辑学助信息。
+- 鉴权：需要登录 token。
+
+路径参数：`id`（学助 ID）
+
+请求体可选字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | string | 姓名 |
+| `phone` | string | 手机号 |
+| `positionLevel` | string | `一级岗` / `二级岗` |
+| `status` | string | `active` / `inactive` |
+| `notes` | string | 备注 |
+
+成功响应（200）：返回更新后的学助信息。
+
+错误码：`400`、`404`、`500`
+
+### 5.7 `DELETE /api/assistants/:id`
+
+- 功能描述：删除学助（并删除关联账户）。
+- 使用场景：离岗学助清理。
+- 鉴权：需要登录 token。
+
+路径参数：`id`（学助 ID）
+
+成功响应（200）：
+
 ```json
-{
-  "name": "张三",
-  "phone": "13800138000",
-  "positionLevel": "一级岗",
-  "status": "active",
-  "notes": "备注信息"
-}
+{ "message": "已删除" }
 ```
 
-**字段说明**：
+错误码：`401`、`404`、`500`
 
-| 字段 | 类型 | 必填 | 说明 | 验证规则 |
-|------|------|------|------|---------|
-| `name` | string | 可选 | 姓名 | 2-10 个字符（中英文数字） |
-| `phone` | string | 可选 | 手机号 | 中国手机号（1 开头，11 位） |
-| `positionLevel` | string | 可选 | 岗位等级 | `"一级岗"`（15元/h）或 `"二级岗"`（12元/h）；后端会自动转换为 `position` + `hourlyRate` |
-| `status` | string | 可选 | 状态 | `"active"` 或 `"inactive"`；更改后 Account 的 `isActive` 会自动同步 |
-| `notes` | string | 可选 | 备注 | 任意文本 |
+### 5.8 `POST /api/assistants/:id/reset-password`
 
-**成功响应 (200)**：
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "studentId": "2025010101",
-  "name": "张三",
-  "phone": "13800138000",
-  "position": "一级岗",
-  "hourlyRate": "15.00",
-  "status": "active",
-  "isOnShift": false,
-  "notes": null,
-  "updatedAt": "2026-05-16T10:30:00.000Z"
-}
-```
+- 功能描述：重置学助密码为“学号后 6 位”，并设置强制改密标志。
+- 使用场景：忘记密码处理。
+- 鉴权：需要登录 token。
 
-**错误响应**：
+路径参数：`id`（学助 ID）
 
-验证失败 (400)：
-```json
-{
-  "message": "数据验证失败",
-  "errors": ["phone 格式不正确（11 位有效手机号）"]
-}
-```
+成功响应（200）：
 
-未找到学助 (404)：
-```json
-{ "message": "未找到学助" }
-```
-
----
-
-## 重置密码 — POST /api/assistants/:id/reset-password
-
-**描述**：管理员将指定学助的登录密码重置为**学号后 6 位**，并标记 `forceChangePassword: true`（不支持管理员自定义密码）。学助下次登录后应自行修改密码。
-
-**认证**：必需 `Bearer Token`
-
-**请求**：
-```
-POST /api/assistants/:id/reset-password
-Authorization: Bearer <JWT_TOKEN>
-```
-
-**请求体**：无
-
-**成功响应 (200)**：
 ```json
 { "message": "密码已重置为学号后六位（已强制下次修改）" }
 ```
 
-**错误响应**：
+错误码：`401`、`404`、`500`
 
-未找到学助或账户 (404)：
-```json
-{ "message": "未找到学助" }
-```
+### 5.9 `POST /api/assistants/:id/status`（不推荐）
 
----
+- 功能描述：直接修改 `isOnShift`。
+- 使用场景：紧急修复状态。
+- 鉴权：需要登录 token。
 
-## 删除学助 — DELETE /api/assistants/:id
+路径参数：`id`（学助 ID）
 
-**请求**：
-```
-DELETE /api/assistants/:id
-Authorization: Bearer <JWT_TOKEN>
-```
+请求体字段：
 
----
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `isOnShift` | boolean | 是 | 是否在岗 |
 
-## ~~设置上/下班状态 — POST /api/assistants/:id/status~~（已废弃）
+成功响应（200）：返回简化后的学助信息。
 
-> ⚠️ **此接口已废弃，请勿在新功能中使用。**
->
-> **废弃原因**：该接口仅修改 `Assistant.isOnShift` 标志字段，**不会**创建 `WorkSession` 或 `PunchRecord`，导致：
-> - 在班看板（`GET /api/admin/attendance/online`）无法感知状态变化
-> - 学助工时统计不产生记录，薪资核算缺失
-> - SSE 实时看板不会触发广播
->
-> **替代方案（管理后台"上班/下班"按钮应改为以下调用链）**：
->
-> | 步骤 | 调用方 | 接口 |
-> |------|--------|------|
-> | 1. 管理员点击"上班"或"下班"按钮 | 管理后台 | `POST /api/admin/assistants/:id/shift-notice` |
-> | 2. 学助客户端轮询收到通知弹窗 | 学助客户端 | `GET /api/attendance/shift-notice`（每 10 秒） |
-> | 3. 学助点击"确认"或"拒绝" | 学助客户端 | `POST /api/attendance/shift-notice/respond` |
-> | 4. 系统自动打卡，WorkSession 正常创建，看板实时刷新 | 服务端广播 | SSE `GET /api/admin/attendance/online/stream` |
->
-> 若确实需要**强制覆写**状态（紧急情况、历史数据修复），可继续调用此接口，但需知晓上述副作用。
+风险说明：不会写入 `WorkSession` / `PunchRecord`，可能导致看板与工时统计不一致。
 
-**请求体**：
-```json
-{
-  "isOnShift": true
-}
-```
+错误码：`400`、`404`、`500`
 
----
+### 5.10 `GET /api/assistants/:assistantId/timelogs`
 
-## 统计 — GET /api/assistants/stats
+- 功能描述：分页查询学助时间日志。
+- 使用场景：补充工时记录查询。
+- 鉴权：需要登录 token。
 
-**请求**：
-```
-GET /api/assistants/stats
-Authorization: Bearer <JWT_TOKEN>
-```
+路径参数：`assistantId`
 
----
+查询参数：`page`、`limit`
 
-## 时间日志 - 列表 — GET /api/assistants/:assistantId/timelogs
+成功响应（200）：`{ data, total, page, limit }`
 
-## 时间日志 - 创建 — POST /api/assistants/:assistantId/timelogs
+错误码：`401`、`500`
+
+### 5.11 `POST /api/assistants/:assistantId/timelogs`
+
+- 功能描述：新增学助时间日志。
+- 使用场景：人工登记工时。
+- 鉴权：需要登录 token。
+
+路径参数：`assistantId`
+
+请求体字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `date` | string | 是 | 日期 |
+| `hours` | number | 是 | 工时 |
+| `remark` | string | 否 | 备注 |
+
+成功响应（201）：返回新建日志对象。
+
+错误码：`400`、`404`、`500`
 
 ---
 
-## 管理员 - 数据同步 / 运维接口
+## 6. 已核验差异说明
 
-### 同步孤立账户 — POST /api/admin/sync-accounts
-
-**描述**：管理员触发的运维接口，删除 `Accounts` 表中 `assistantId` 不为空但在 `Assistants` 表中已不存在的孤立账户记录（用于修复管理后台误删导致的同步不一致）。
-
-**认证**：必需管理员 `Bearer Token`
-
-**请求**：
-```
-POST /api/admin/sync-accounts
-Authorization: Bearer <JWT_TOKEN>
-```
-
-**成功响应 (200)**：
-```json
-{
-  "message": "同步完成，已删除 2 条孤立账户",
-  "deleted": 2,
-  "accounts": [
-    { "id": "...", "username": "2021002", "assistantId": "..." }
-  ]
-}
-```
-
-**无需清理示例**：
-```json
-{ "message": "数据已一致，无需清理", "deleted": 0 }
-```
-
-### 运维脚本 — src/scripts/syncOrphanAccounts.js
-
-项目提供了一个临时使用的脚本用于一次性修复历史遗留数据：
-
-- 用法（预览，不删除）：
-```
-node src/scripts/syncOrphanAccounts.js --dry-run
-```
-- 用法（正式删除）：
-```
-node src/scripts/syncOrphanAccounts.js
-```
-
-脚本逻辑：查找 `Accounts` 表中 `assistantId` 非空但在 `Assistants` 表中不存在的记录，打印列表并在非 `--dry-run` 模式下物理删除这些账户。
-
-
-# Excel/CSV 处理流程
-
-## 前端数据准备指南
-
-### ⭐ 方案 A：CSV 文件（推荐）
-
-**优点**：
-- ✅ 文件最小，适合大数据量
-- ✅ Excel 直接打开编辑
-- ✅ 易于版本控制
-- ✅ 任何操作系统都支持
-
-**准备步骤**：
-
-1. **标准列名**（必须完全一致，包括空格）：
-   ```
-   学号 | 姓名 | 手机号 | 岗位等级
-   ```
-
-2. **CSV 纯文本示例**：
-   ```csv
-   学号,姓名,手机号,岗位等级
-   20230001,张三,13800138000,一级岗
-   20230002,李四,13800138001,二级岗
-   20230003,王五,13800138002,一级岗
-   ```
-
-3. **保存设置**：
-   - 编码：**UTF-8**
-   - 格式：CSV
-   - 分隔符：逗号 `,`
-
-### 方案 B：Excel 文件
-
-**特点**：
-- ✅ 非技术人员友好
-- ✅ 支持格式和验证
-
-**列名**（系统会自动识别这些替代名）：
-
-| 标准 | 替代名 1 | 替代名 2 |
-|------|----------|----------|
-| 学号 | studentId | student_id |
-| 姓名 | name | - |
-| 手机号 | phone | phone_number |
-| 岗位等级 | positionLevel | position_level |
-
----
-
-## 前端处理流程
-
-```html
-<input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
-<select id="mode">
-  <option value="insert">仅新增</option>
-  <option value="upsert">新增或更新（推荐）</option>
-</select>
-<button onclick="uploadFile()">上传</button>
-```
-
-```javascript
-async function uploadFile() {
-  const file = document.getElementById('fileInput').files[0];
-  const mode = document.getElementById('mode').value;
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('mode', mode);
-  
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch('/api/assistants/import-file', {
-    method: 'POST',
-    body: formData,
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  
-  const result = await response.json();
-  console.log('导入结果:', result);
-}
-```
-
----
-
-## 后端处理流程
-
-**处理步骤**：
-
-1. **multer 中间件** - 接收文件，验证类型和大小
-2. **文件解析** - 根据文件类型选择解析器
-   - CSV → `parseCSV()`
-   - Excel → `parseExcel()`
-3. **字段映射** - `mapFieldNames()` 处理不同列名
-4. **内部去重** - `deduplicateByStudentId()` 过滤重复学号
-5. **数据验证** - `validateAssistantData()` 逐行验证
-6. **导入处理**
-   - `insert` 模式：检查存在性，存在则跳过
-   - `upsert` 模式：存在则更新，否则新增
-7. **返回报告** - `generateImportReport()` 汇总结果
-
-**后端配置**：
-
-```bash
-npm install multer xlsx
-```
-
-**路由配置** (src/routes/assistantRoutes.js)：
-
-```javascript
-const multer = require('multer');
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    const allowed = ['text/csv', 'application/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
-    cb(allowed.includes(file.mimetype) ? null : new Error('文件类型不支持'), allowed.includes(file.mimetype));
-  }
-});
-
-router.post('/import-file', protect, upload.single('file'), controller.importFile);
-```
-
----
-
-# 前端集成示例
-
-## React + Vite + TailwindCSS 完整组件
-
-**文件位置**：`src/components/BulkImportAssistant.jsx`
-
-完整的 React 组件已创建，包含以下功能：
-
-### ✨ 功能特性
-
-- ✅ **单个添加**：实时表单验证和提交
-- ✅ **文件导入**：支持拖拽上传 CSV/Excel 文件
-- ✅ **导入模式**：可选"仅新增"或"新增/更新"
-- ✅ **结果统计**：实时显示导入结果（成功/失败/更新）
-- ✅ **错误提示**：详细的行级错误报告
-- ✅ **TailwindCSS 样式**：响应式设计，美观易用
-
-### 📦 使用方式
-
-```jsx
-import BulkImportAssistant from './components/BulkImportAssistant';
-
-export default function App() {
-  return <BulkImportAssistant />;
-}
-```
-
-### 🔧 组件 Props（支持扩展）
-
-当前版本使用硬编码的 API 路径和 token 从 localStorage 获取。可根据需要扩展：
-
-```json
-{
-  "apiBase": "/api/assistants",
-  "onSuccess": callback,
-  "onError": callback
-}
-```
-
----
-
-## Vanilla JavaScript 示例
-
-如不使用 React，参考以下原生 JS 实现：
-
-
-<!DOCTYPE html>
-<html>
-<head>
-  <title>学助管理</title>
-  <style>
-    body { font-family: Arial; margin: 20px; }
-    .tabs { margin-bottom: 20px; }
-    .tab-btn { padding: 10px 20px; cursor: pointer; }
-    .tab-btn.active { background: #0066cc; color: white; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    input, select { width: 100%; padding: 8px; margin: 5px 0; }
-    #uploadArea { border: 2px dashed #ccc; padding: 30px; text-align: center; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <h1>学助管理系统</h1>
-  
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('add')">单个添加</button>
-    <button class="tab-btn" onclick="switchTab('file')">文件导入</button>
-  </div>
-  
-  <div id="add" class="tab-content active">
-    <h2>添加学助</h2>
-    <form id="addForm">
-      <input type="text" id="studentId" placeholder="学号" required />
-      <input type="text" id="name" placeholder="姓名" required />
-      <input type="tel" id="phone" placeholder="手机号" required />
-      <select id="positionLevel" required>
-        <option value="">选择岗位</option>
-        <option value="一级岗">一级岗</option>
-        <option value="二级岗">二级岗</option>
-      </select>
-      <button type="submit">添加</button>
-    </form>
-    <div id="addResult"></div>
-  </div>
-  
-  <div id="file" class="tab-content">
-    <h2>文件导入</h2>
-    <div id="uploadArea">拖拽或点击选择</div>
-    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" />
-    <button onclick="uploadFile()">上传</button>
-    <div id="fileResult"></div>
-  </div>
-  
-  <script>
-    const token = localStorage.getItem('token');
-    
-    function switchTab(name) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById(name).classList.add('active');
-      event.target.classList.add('active');
-    }
-    
-    document.getElementById('addForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const data = {
-        studentId: document.getElementById('studentId').value,
-        name: document.getElementById('name').value,
-        phone: document.getElementById('phone').value,
-        positionLevel: document.getElementById('positionLevel').value
-      };
-      
-      const response = await fetch('/api/assistants', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      
-      const result = await response.json();
-      document.getElementById('addResult').innerHTML = response.ok ? '✅ 成功' : '❌ ' + result.message;
-    });
-    
-    const uploadArea = document.getElementById('uploadArea');
-    const fileInput = document.getElementById('fileInput');
-    let selectedFile = null;
-    
-    uploadArea.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      selectedFile = e.dataTransfer.files[0];
-      uploadArea.textContent = '✅ ' + selectedFile.name;
-    });
-    
-    async function uploadFile() {
-      if (!selectedFile) return alert('请选择文件');
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('mode', 'upsert');
-      
-      const response = await fetch('/api/assistants/import-file', {
-        method: 'POST',
-        body: formData,
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const result = await response.json();
-      document.getElementById('fileResult').innerHTML = `成功: ${result.summary.success} | 失败: ${result.summary.failed}`;
-    }
-  </script>
-</body>
-</html>
-```
-
----
-
-# 后端配置说明
-
-## 依赖
-
-```bash
-npm install multer xlsx
-```
-
-## 环境变量
-
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/attendance
-JWT_SECRET=secret-key
-PORT=3000
-```
-
-## 项目结构
-
-```
-src/
-├── utils/
-│   ├── validators.js
-│   └── excelParser.js
-├── controllers/
-│   └── assistantController.js
-└── routes/
-    └── assistantRoutes.js
-```
-
----
-
-# 常见问题
-
-| 问题 | 答案 |
-|------|------|
-| CSV 显示乱码 | 确保 UTF-8 编码 |
-| Excel 无法解析 | 保存为 .xlsx |
-| 学号重复怎么办 | 使用 upsert 模式 |
-| 最多导入多少行 | 1000 行 |
-
----
-
-**版本历史**: v2.0 (2024-05-14)
+- `POST /api/assistants/import-file`：当前控制器中有实现，但路由未挂载，默认不可用。
+- 学助客户端相关接口（`/api/user/*`、`/api/attendance/*`）已全部迁移至 `API_CLIENT.md`。

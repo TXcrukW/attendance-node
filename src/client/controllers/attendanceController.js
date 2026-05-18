@@ -1,8 +1,10 @@
 const { Op } = require('sequelize');
 const { sequelize } = require('../../config/db');
-const Assistant   = require('../../db/models/assistantModel');
-const PunchRecord = require('../../db/models/punchRecord');
-const WorkSession = require('../../db/models/workSession');
+const Assistant         = require('../../db/models/assistantModel');
+const PunchRecord       = require('../../db/models/punchRecord');
+const WorkSession       = require('../../db/models/workSession');
+const ShiftNotification = require('../../db/models/shiftNotification');
+const { broadcastOnline } = require('../../common/services/attendanceBroadcast');
 const {
   getShiftType,
   isPastRestTime,
@@ -267,5 +269,187 @@ exports.getMySummary = async (req, res) => {
   } catch (err) {
     console.error('[attendance.getMySummary]', err);
     res.status(500).json({ message: '统计工时失败' });
+  }
+};
+
+// ─── 学助端：查询管理员发来的在/下班通知（轮询接口）──────────
+/**
+ * GET /api/attendance/shift-notice
+ *
+ * 学助客户端每 10 秒轮询此接口。
+ * 若存在有效的 pending 通知则返回通知内容，客户端据此弹出确认弹窗；
+ * 若没有则返回 { notice: null }。
+ *
+ * 同时会自动将已过期的 pending 通知标记为 expired。
+ */
+exports.getShiftNotice = async (req, res) => {
+  try {
+    const assistantId = req.user && req.user.assistantId;
+    if (!assistantId) return res.status(403).json({ message: '请使用学助账号登录后操作' });
+
+    const now = new Date();
+
+    // 批量过期处理（不等待，异步进行）
+    ShiftNotification.update(
+      { status: 'expired' },
+      { where: { assistantId, status: 'pending', expiresAt: { [Op.lt]: now } } },
+    ).catch(() => {});
+
+    const notice = await ShiftNotification.findOne({
+      where: {
+        assistantId,
+        status:    'pending',
+        expiresAt: { [Op.gt]: now },
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    if (!notice) return res.json({ notice: null });
+
+    const n = notice.get({ plain: true });
+    res.json({
+      notice: {
+        id:          n.id,
+        action:      n.action,
+        actionLabel: n.action === 'clock_in' ? '上班' : '下班',
+        expiresAt:   n.expiresAt,
+        createdAt:   n.createdAt,
+        // 剩余有效秒数，供前端倒计时展示
+        secondsLeft: Math.max(0, Math.round((new Date(n.expiresAt) - now) / 1000)),
+      },
+    });
+  } catch (err) {
+    console.error('[attendance.getShiftNotice]', err);
+    res.status(500).json({ message: '获取通知失败' });
+  }
+};
+
+// ─── 学助端：响应管理员的在/下班通知 ──────────────────────────
+/**
+ * POST /api/attendance/shift-notice/respond
+ * body: { notificationId: string, response: 'confirmed' | 'declined' }
+ *
+ * confirmed → 实际执行打卡（上班或下班），逻辑与 /punch 一致
+ * declined  → 仅标记通知为 declined，不做打卡操作
+ *
+ * 无论结果如何，都会触发一次 SSE 广播，管理端实时看板即时刷新。
+ */
+exports.respondShiftNotice = async (req, res) => {
+  try {
+    const assistantId = req.user && req.user.assistantId;
+    if (!assistantId) return res.status(403).json({ message: '请使用学助账号登录后操作' });
+
+    const { notificationId, response } = req.body;
+    if (!notificationId) return res.status(400).json({ message: 'notificationId 为必填项' });
+    if (!['confirmed', 'declined'].includes(response)) {
+      return res.status(400).json({ message: 'response 必须为 confirmed 或 declined' });
+    }
+
+    const now    = new Date();
+    const notice = await ShiftNotification.findOne({
+      where: { id: notificationId, assistantId, status: 'pending' },
+    });
+
+    if (!notice) {
+      return res.status(404).json({ message: '通知不存在或已处理' });
+    }
+    if (now > notice.expiresAt) {
+      await notice.update({ status: 'expired' });
+      return res.status(410).json({ message: '通知已超时（5 分钟内未响应自动失效）' });
+    }
+
+    // ── 拒绝 ─────────────────────────────────────────────────────
+    if (response === 'declined') {
+      await notice.update({ status: 'declined', respondedAt: now });
+      broadcastOnline().catch(() => {});
+      return res.json({ message: '已拒绝', status: 'declined' });
+    }
+
+    // ── 确认：执行上班或下班打卡 ─────────────────────────────────
+    const t = await sequelize.transaction();
+    try {
+      const openSession = await WorkSession.findOne({
+        where: { assistantId, status: { [Op.in]: ['open', 'pending_confirm'] } },
+        transaction: t,
+      });
+
+      // clock_in
+      if (notice.action === 'clock_in') {
+        if (openSession) {
+          await t.rollback();
+          return res.status(409).json({
+            message:   '您已有未结束的班次，无需重复上班',
+            sessionId: openSession.id,
+          });
+        }
+
+        const shiftType = getShiftType(now);
+        const date      = toDateOnly(now);
+
+        const punch = await PunchRecord.create(
+          { assistantId, type: 'IN', punchTime: now, source: 'admin_notice' },
+          { transaction: t },
+        );
+        const session = await WorkSession.create(
+          { assistantId, date, shiftType, startTime: now, status: 'open', punchInId: punch.id },
+          { transaction: t },
+        );
+
+        await notice.update(
+          { status: 'confirmed', respondedAt: now, resultSessionId: session.id },
+          { transaction: t },
+        );
+        await t.commit();
+        await Assistant.update({ isOnShift: true }, { where: { id: assistantId } });
+        broadcastOnline().catch(() => {});
+
+        return res.json({
+          message:    `上班打卡成功（${SHIFT_LABELS_CN[shiftType]}）`,
+          status:     'confirmed',
+          sessionId:  session.id,
+          shiftLabel: SHIFT_LABELS_CN[shiftType],
+          startTime:  now,
+        });
+      }
+
+      // clock_out
+      if (!openSession) {
+        await t.rollback();
+        return res.status(409).json({ message: '当前没有进行中的班次，无需下班' });
+      }
+
+      const durationMinutes = Math.max(0, Math.round((now - openSession.startTime) / 60000));
+      const punch = await PunchRecord.create(
+        { assistantId, type: 'OUT', punchTime: now, source: 'admin_notice' },
+        { transaction: t },
+      );
+      await openSession.update(
+        { endTime: now, durationMinutes, status: 'closed', punchOutId: punch.id },
+        { transaction: t },
+      );
+      await notice.update(
+        { status: 'confirmed', respondedAt: now },
+        { transaction: t },
+      );
+      await t.commit();
+      await Assistant.update({ isOnShift: false }, { where: { id: assistantId } });
+      broadcastOnline().catch(() => {});
+
+      return res.json({
+        message:         '下班打卡成功',
+        status:          'confirmed',
+        shiftLabel:      SHIFT_LABELS_CN[openSession.shiftType],
+        startTime:       openSession.startTime,
+        endTime:         now,
+        durationMinutes,
+        hours:           (durationMinutes / 60).toFixed(2),
+      });
+    } catch (err) {
+      await t.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error('[attendance.respondShiftNotice]', err);
+    res.status(500).json({ message: '处理响应失败' });
   }
 };

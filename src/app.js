@@ -10,6 +10,7 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 // 预加载考勤相关模型，确保 sequelize.sync() 时建表
 require('./db/models/punchRecord');
 require('./db/models/workSession');
+require('./db/models/shiftNotification');
 const { startAttendanceScheduler } = require('./utils/attendanceScheduler');
 
 // 加载环境变量

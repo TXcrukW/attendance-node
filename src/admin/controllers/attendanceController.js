@@ -1,7 +1,10 @@
 const { Op } = require('sequelize');
-const Assistant   = require('../../db/models/assistantModel');
-const PunchRecord = require('../../db/models/punchRecord');
-const WorkSession = require('../../db/models/workSession');
+const Assistant         = require('../../db/models/assistantModel');
+const PunchRecord       = require('../../db/models/punchRecord');
+const WorkSession       = require('../../db/models/workSession');
+const ShiftNotification = require('../../db/models/shiftNotification');
+const sseManager        = require('../../common/services/sseManager');
+const { broadcastOnline } = require('../../common/services/attendanceBroadcast');
 const {
   SHIFT_LABELS_CN,
   toDateOnly,
@@ -416,5 +419,134 @@ exports.getOnlineAssistants = async (req, res) => {
   } catch (err) {
     console.error('[admin.attendance.getOnlineAssistants]', err);
     res.status(500).json({ message: '查询在班列表失败' });
+  }
+};
+
+// ─── 在班看板 SSE 实时推送 ─────────────────────────────────────
+/**
+ * GET /api/admin/attendance/online/stream
+ *
+ * Server-Sent Events 长连接，管理前端订阅此接口后：
+ *   1. 立即收到一次当前在班数据（event: online）
+ *   2. 每 30 秒自动推送最新快照
+ *   3. 当任意学助状态变化（打卡、通知确认等）时即时推送
+ *
+ * 前端示例：
+ *   const es = new EventSource('/api/admin/attendance/online/stream', {
+ *     headers: { Authorization: `Bearer ${token}` }
+ *   });
+ *   // 注意：原生 EventSource 不支持自定义 header，生产环境推荐使用
+ *   // token 作为 query 参数（?token=xxx）并在此处验证，或改用 fetch + ReadableStream
+ *   es.addEventListener('online', e => {
+ *     const { data, total, serverTime } = JSON.parse(e.data);
+ *     renderOnlineTable(data);
+ *   });
+ */
+/** 内部辅助：构建在班快照并通过 SSE 广播（委托给共享服务）*/
+exports.broadcastOnline = broadcastOnline;
+
+exports.onlineStream = (req, res) => {
+  // 设置 SSE 响应头
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.flushHeaders();
+
+  // 立即推送一次当前快照
+  broadcastOnline();
+
+  // 注册此连接到 sseManager（disconnect 时自动移除）
+  sseManager.addClient(res);
+
+  // 每 30s 推送最新快照（心跳 + 数据刷新）
+  const timer = setInterval(() => broadcastOnline(), 30000);
+  res.on('close', () => clearInterval(timer));
+};
+
+// ─── 管理员发送上/下班确认通知给学助 ──────────────────────────
+/**
+ * POST /api/admin/assistants/:id/shift-notice
+ * body: { action: 'clock_in' | 'clock_out' }
+ *
+ * 1. 将该学助所有未处理通知置为 expired
+ * 2. 创建新通知（5 分钟内有效）
+ * 3. 通过 SSE 广播在班看板最新状态（让管理端看到"等待确认"状态）
+ */
+exports.requestShiftChange = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action } = req.body;
+
+    if (!['clock_in', 'clock_out'].includes(action)) {
+      return res.status(400).json({ message: 'action 必须为 clock_in（上班）或 clock_out（下班）' });
+    }
+
+    const assistant = await Assistant.findByPk(id, { attributes: ['id', 'name', 'studentId'] });
+    if (!assistant) return res.status(404).json({ message: '学助不存在' });
+
+    // 废除该学助旧的待处理通知
+    await ShiftNotification.update(
+      { status: 'expired' },
+      { where: { assistantId: id, status: 'pending' } },
+    );
+
+    // 创建新通知（5 分钟有效）
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const notice = await ShiftNotification.create({
+      assistantId: id,
+      requestedBy: req.user.id,
+      action,
+      status:     'pending',
+      expiresAt,
+    });
+
+    // 广播在班看板（管理端可看到"通知已发出"）
+    broadcastOnline().catch(() => {});
+
+    const actionLabel = action === 'clock_in' ? '上班' : '下班';
+    return res.status(201).json({
+      message:        `已向 ${assistant.name} 发送${actionLabel}确认请求，等待学助响应`,
+      notificationId: notice.id,
+      action,
+      actionLabel,
+      assistantName:  assistant.name,
+      assistantId:    assistant.id,
+      expiresAt,
+    });
+  } catch (err) {
+    console.error('[admin.requestShiftChange]', err);
+    res.status(500).json({ message: '发送通知失败' });
+  }
+};
+
+// ─── 查询指定学助的通知状态（管理端查询结果用）─────────────────
+/**
+ * GET /api/admin/assistants/:id/shift-notice
+ * 返回该学助最近一条通知（任意状态），供管理端展示请求结果。
+ */
+exports.getAssistantNotice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const notice = await ShiftNotification.findOne({
+      where: { assistantId: id },
+      order: [['createdAt', 'DESC']],
+    });
+    if (!notice) return res.json({ notice: null });
+
+    const n = notice.get({ plain: true });
+    res.json({
+      notice: {
+        id:          n.id,
+        action:      n.action,
+        actionLabel: n.action === 'clock_in' ? '上班' : '下班',
+        status:      n.status,
+        expiresAt:   n.expiresAt,
+        respondedAt: n.respondedAt,
+        createdAt:   n.createdAt,
+      },
+    });
+  } catch (err) {
+    console.error('[admin.getAssistantNotice]', err);
+    res.status(500).json({ message: '查询通知失败' });
   }
 };

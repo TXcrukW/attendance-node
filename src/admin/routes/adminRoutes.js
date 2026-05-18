@@ -20,6 +20,8 @@ router.post('/sync-accounts', protect, adminOnly, syncAccounts);
 // ── 考勤管理路由 ──────────────────────────────────────────────
 // 当前在班学助看板（以 WorkSession 为准，实时准确）
 router.get('/attendance/online',                       protect, adminOnly, attendanceCtrl.getOnlineAssistants);
+// 在班看板 SSE 实时推送（长连接，管理端订阅后自动接收状态变化）
+router.get('/attendance/online/stream',                protect, adminOnly, attendanceCtrl.onlineStream);
 // 查询所有学助工作会话（支持 assistantId / from / to / status / search 过滤）
 router.get('/attendance/sessions',                     protect, adminOnly, attendanceCtrl.getAllSessions);
 // 待审核列表（auto_closed / pending_confirm / 长期未关闭）
@@ -32,5 +34,9 @@ router.get('/attendance/assistants/:id/sessions',      protect, adminOnly, atten
 router.get('/attendance/assistants/:id/summary',       protect, adminOnly, attendanceCtrl.getAssistantSummary);
 // 人工纠正指定会话（需提供 correctionNote）
 router.patch('/attendance/sessions/:id',               protect, adminOnly, attendanceCtrl.correctSession);
+// 向学助发送上/下班确认通知
+router.post('/assistants/:id/shift-notice',            protect, adminOnly, attendanceCtrl.requestShiftChange);
+// 查询学助最近一条通知状态（管理端轮询或 SSE 广播后查询用）
+router.get('/assistants/:id/shift-notice',             protect, adminOnly, attendanceCtrl.getAssistantNotice);
 
 module.exports = router;

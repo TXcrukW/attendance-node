@@ -1,6 +1,6 @@
 # 考勤系统 API 完整文档
 
-**最后更新**：2024-05-14 | **版本**: 2.0
+**最后更新**：2026-05-18 | **版本**: 2.1
 
 ## 📋 快速导航
 
@@ -8,6 +8,8 @@
 - **👥 [单个学助添加](#学助管理---单个添加)** - 添加单个学助
 - **📊 [批量导入](#学助管理---批量导入)** - 支持 JSON、CSV、Excel 导入
 - **⚙️ [其他接口](#学助管理---其他接口)** - 查询、更新、删除等
+- **🔔 [上/下班通知确认流程](#上下班通知确认流程)** - 管理员触发 → 学助弹窗确认 → 自动打卡
+- **📡 [在班看板实时更新](#管理员考勤---当前在班看板)** - SSE 长连接 / 轮询两种方案
 - **📁 [Excel/CSV 处理完整指南](#excelcsv-处理流程)** - **前端如何准备数据，后端如何处理文件**
 - **💻 [前端集成代码](#前端集成示例)** - 完整的 HTML + JS 示例
 - **🔧 [后端配置](#后端配置说明)** - 依赖、路由、中间件配置
@@ -309,6 +311,67 @@ fetch('/api/assistants/import-file', {
 
 ---
 
+# 上/下班通知确认流程
+
+> 这是 v2.1 引入的核心功能：管理后台点击"上班/下班"按钮后，学助客户端弹出确认弹窗，学助选择确认或拒绝，系统根据响应自动完成打卡，管理端实时看板同步刷新。
+
+## 完整接口调用时序
+
+```
+管理后台                          后端服务                        学助客户端
+─────────────                    ─────────                      ──────────────────────
+1. 点击"下班"按钮
+   POST /api/admin/assistants/:id/shift-notice
+   { action:"clock_out" }
+                               → 创建 ShiftNotification(pending)
+                               → SSE 广播在班看板
+                                                               2. 每 10s 轮询
+                                                                  GET /api/attendance/shift-notice
+                                                               ← { notice:{action:"clock_out",secondsLeft:280} }
+                                                                  弹出确认弹窗
+3. 可查询通知进度
+   GET /api/admin/assistants/:id/shift-notice
+   ← { notice:{ status:"pending" } }
+                                                               4. 学助点"确认"
+                                                                  POST /api/attendance/shift-notice/respond
+                                                                  { notificationId, response:"confirmed" }
+                               → 自动 OUT 打卡
+                               → WorkSession closed
+                               → SSE 广播刷新看板              ← { message:"下班打卡成功" }
+5. 管理端看板自动刷新（无需手动操作）
+```
+
+## 管理后台需调用的接口
+
+| 功能 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 向学助发上/下班请求 | `POST` | `/api/admin/assistants/:id/shift-notice` | **替代旧 `/api/assistants/:id/status`** |
+| 查询通知响应状态 | `GET` | `/api/admin/assistants/:id/shift-notice` | 可选，SSE 连接的情况下自动感知 |
+| 订阅在班看板实时推送 | `GET` | `/api/admin/attendance/online/stream` | SSE 长连接，推荐方式 |
+| 获取在班快照（轮询备选） | `GET` | `/api/admin/attendance/online` | 每 30s 调一次即可 |
+
+## 学助客户端需调用的接口
+
+| 功能 | 方法 | 路径 | 频率 | 说明 |
+|------|------|------|------|------|
+| 轮询待处理通知 | `GET` | `/api/attendance/shift-notice` | 每 10s | 有通知则弹窗 |
+| 响应通知 | `POST` | `/api/attendance/shift-notice/respond` | 用户操作时 | `confirmed` 自动打卡，`declined` 拒绝不打卡 |
+| 学助自主打卡 | `POST` | `/api/attendance/punch` | 用户操作时 | 与通知流程独立，均产生 WorkSession |
+| 查询当前考勤状态 | `GET` | `/api/attendance/status` | 页面加载 / 定时 | 获取当前班次、是否需要休息提醒 |
+
+## 关键设计说明
+
+> **为什么废弃 `POST /api/assistants/:id/status`？**
+>
+> 旧接口仅写 `Assistant.isOnShift` 布尔字段，不创建 `WorkSession` 也不创建 `PunchRecord`：
+> - 在班看板查询的是 `WorkSession` 表，旧接口改动完全不可见
+> - 工时统计、薪资估算均依赖 `WorkSession`，旧接口操作后无工时记录
+> - SSE 广播以 `WorkSession` 变化为触发点，旧接口不触发任何广播
+>
+> 新流程通过通知 → 打卡的完整链路，确保数据一致性和可审计性。
+
+---
+
 ## 管理员考勤 - 当前在班看板
 
 ### GET /api/admin/attendance/online
@@ -343,6 +406,112 @@ fetch('/api/assistants/import-file', {
 
 - 说明：返回的条目来自 `WorkSession` 表并包含关联的 `Assistant` 基本信息；`onlineMinutes` 为从 `startTime` 到服务器当前时间的分钟数估算，便于管理端展示在岗时长。
 
+---
+
+### GET /api/admin/attendance/online/stream（SSE 实时推送）
+
+- 描述：Server-Sent Events 长连接。管理前端订阅后，立即收到一次当前在班快照，此后每 30 秒或任意学助状态发生变化（打卡、通知确认/拒绝）时即时推送，无需高频轮询。
+- 鉴权：同上，携带管理员 JWT。
+
+**前端接入示例（fetch + ReadableStream，支持自定义 Authorization header）**：
+
+```javascript
+async function subscribeOnlineStream(token, onData) {
+  const response = await fetch('/api/admin/attendance/online/stream', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.replace(/^data: /, '').trim();
+      if (line) {
+        try { onData(JSON.parse(line)); } catch (_) {}
+      }
+    }
+  }
+}
+
+// 使用
+subscribeOnlineStream(localStorage.getItem('token'), ({ data, total, serverTime }) => {
+  renderOnlineTable(data);
+  console.log(`在班 ${total} 人，服务端时间 ${serverTime}`);
+});
+```
+
+> **轮询备选方案**：若不需要 SSE，每 30 秒调用一次 `GET /api/admin/attendance/online` 即可。
+
+---
+
+### POST /api/admin/assistants/:id/shift-notice（向学助发送上/下班确认请求）
+
+- 描述：管理员向指定学助推送上班或下班确认通知，学助客户端通过轮询感知后弹出弹窗。通知有效期 **5 分钟**，发送新通知会自动作废该学助之前未处理的通知。
+- 鉴权：需管理员 JWT。
+
+**请求体**：
+```json
+{ "action": "clock_out" }
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `action` | string | `clock_in`（要求上班）或 `clock_out`（要求下班） |
+
+**成功响应（201）**：
+```json
+{
+  "message": "已向张三发送下班确认请求，等待学助响应",
+  "notificationId": "uuid",
+  "action": "clock_out",
+  "actionLabel": "下班",
+  "assistantName": "张三",
+  "assistantId": "uuid",
+  "expiresAt": "2026-05-16T09:45:00.000Z"
+}
+```
+
+---
+
+### GET /api/admin/assistants/:id/shift-notice（查询学助最新通知状态）
+
+- 描述：管理员查询指定学助最近一条通知的状态，确认学助是否已响应。
+
+**成功响应（200）**：
+```json
+{
+  "notice": {
+    "id": "uuid",
+    "action": "clock_out",
+    "actionLabel": "下班",
+    "status": "confirmed",
+    "expiresAt": "2026-05-16T09:45:00.000Z",
+    "respondedAt": "2026-05-16T09:42:00.000Z",
+    "createdAt": "2026-05-16T09:40:00.000Z"
+  }
+}
+```
+
+`status` 可能值：`pending`（待响应）、`confirmed`（已确认）、`declined`（已拒绝）、`expired`（超时作废）。
+
+---
+
+### GET /api/attendance/shift-notice 与 POST /api/attendance/shift-notice/respond（学助端接口）
+
+> 📄 这两个接口属于**学助客户端**，完整参数、响应结构和前端示例代码请查阅 [API_CLIENT.md](./API_CLIENT.md) 考勤模块中的对应章节。
+>
+> | 接口 | 方法 | 用途 | 鉴权 |
+> |------|------|------|------|
+> | `/api/attendance/shift-notice` | `GET` | 学助每 10s 轮询，有通知则弹窗确认 | 学助 JWT |
+> | `/api/attendance/shift-notice/respond` | `POST` | 学助提交 `confirmed`/`declined`，`confirmed` 时自动打卡并触发 SSE 广播 | 学助 JWT |
+
+---
 
 ## 学助管理 - 其他接口
 
@@ -480,9 +649,25 @@ Authorization: Bearer <JWT_TOKEN>
 
 ---
 
-## 设置上/下班状态 — POST /api/assistants/:id/status
+## ~~设置上/下班状态 — POST /api/assistants/:id/status~~（已废弃）
 
-**说明**：该接口用于管理员在后台手动设置学助的上/下班状态。现仅支持新字段 `isOnShift`（必须为 boolean）。
+> ⚠️ **此接口已废弃，请勿在新功能中使用。**
+>
+> **废弃原因**：该接口仅修改 `Assistant.isOnShift` 标志字段，**不会**创建 `WorkSession` 或 `PunchRecord`，导致：
+> - 在班看板（`GET /api/admin/attendance/online`）无法感知状态变化
+> - 学助工时统计不产生记录，薪资核算缺失
+> - SSE 实时看板不会触发广播
+>
+> **替代方案（管理后台"上班/下班"按钮应改为以下调用链）**：
+>
+> | 步骤 | 调用方 | 接口 |
+> |------|--------|------|
+> | 1. 管理员点击"上班"或"下班"按钮 | 管理后台 | `POST /api/admin/assistants/:id/shift-notice` |
+> | 2. 学助客户端轮询收到通知弹窗 | 学助客户端 | `GET /api/attendance/shift-notice`（每 10 秒） |
+> | 3. 学助点击"确认"或"拒绝" | 学助客户端 | `POST /api/attendance/shift-notice/respond` |
+> | 4. 系统自动打卡，WorkSession 正常创建，看板实时刷新 | 服务端广播 | SSE `GET /api/admin/attendance/online/stream` |
+>
+> 若确实需要**强制覆写**状态（紧急情况、历史数据修复），可继续调用此接口，但需知晓上述副作用。
 
 **请求体**：
 ```json

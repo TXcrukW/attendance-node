@@ -378,6 +378,158 @@ curl -X GET "http://localhost:3000/api/attendance/summary" \
 
 ---
 
+### GET /api/attendance/shift-notice（轮询管理员通知）
+
+- **描述**：学助客户端周期性调用（建议每 **10 秒**一次），检查是否有管理员发来的上/下班确认请求。若收到通知应立即弹出确认弹窗；无通知时继续轮询。
+- **请求方式**：`GET`
+- **鉴权**：`Authorization: Bearer <token>`（token payload 需含 `assistantId`）
+
+- **成功响应（200）—— 有待处理通知**：
+
+```json
+{
+  "notice": {
+    "id": "uuid",
+    "action": "clock_out",
+    "actionLabel": "下班",
+    "expiresAt": "2026-05-16T09:45:00.000Z",
+    "createdAt": "2026-05-16T09:40:00.000Z",
+    "secondsLeft": 183
+  }
+}
+```
+
+- **成功响应（200）—— 无通知**：`{ "notice": null }`
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `id` | 通知 UUID，响应时需携带 |
+| `action` | `clock_in`（要求上班）或 `clock_out`（要求下班） |
+| `actionLabel` | 对应的中文标签（`上班` / `下班`） |
+| `secondsLeft` | 通知剩余有效时间（秒），可用于倒计时展示 |
+
+- **错误响应**：`403` token 未含 `assistantId`。
+
+- **前端轮询 + 弹窗示例**：
+
+```javascript
+let noticePollingTimer = null;
+
+function startNoticePolling(token) {
+  async function poll() {
+    try {
+      const res = await fetch('/api/attendance/shift-notice', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const { notice } = await res.json();
+      if (notice) {
+        stopNoticePolling();
+        showShiftNoticeDialog(notice, token);
+      }
+    } catch (_) {}
+  }
+  poll();
+  noticePollingTimer = setInterval(poll, 10000);
+}
+
+function stopNoticePolling() {
+  clearInterval(noticePollingTimer);
+}
+
+async function showShiftNoticeDialog(notice, token) {
+  const confirmed = window.confirm(
+    `管理员请求您【${notice.actionLabel}】打卡，是否确认？\n（${notice.secondsLeft} 秒内有效）`
+  );
+  const response = confirmed ? 'confirmed' : 'declined';
+
+  const res = await fetch('/api/attendance/shift-notice/respond', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notificationId: notice.id, response }),
+  });
+  const result = await res.json();
+  alert(result.message);
+  startNoticePolling(token); // 响应后恢复轮询
+}
+```
+
+- **curl 示例**：
+
+```bash
+curl -X GET http://localhost:3000/api/attendance/shift-notice \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+### POST /api/attendance/shift-notice/respond（响应管理员通知）
+
+- **描述**：学助确认或拒绝管理员发来的上/下班通知。`confirmed` 时系统自动完成打卡（等同于调用 `POST /api/attendance/punch`），并触发管理端在班看板 SSE 实时刷新；`declined` 时仅更新通知状态，不打卡。
+- **请求方式**：`POST`
+- **鉴权**：`Authorization: Bearer <token>`（token payload 需含 `assistantId`）
+- **请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `notificationId` | `string` | ✅ | 通知 UUID（来自 `GET /shift-notice` 响应的 `id`） |
+| `response` | `string` | ✅ | `confirmed`（确认打卡）或 `declined`（拒绝） |
+
+```json
+{ "notificationId": "uuid", "response": "confirmed" }
+```
+
+- **成功响应（200）—— 确认上班**：
+
+```json
+{
+  "message": "上班打卡成功",
+  "status": "confirmed",
+  "shiftLabel": "下午班",
+  "sessionId": "uuid",
+  "startTime": "2026-05-16T09:40:00.000Z"
+}
+```
+
+- **成功响应（200）—— 确认下班**：
+
+```json
+{
+  "message": "下班打卡成功",
+  "status": "confirmed",
+  "shiftLabel": "上午班",
+  "durationMinutes": 97,
+  "hours": "1.62"
+}
+```
+
+- **成功响应（200）—— 拒绝**：
+
+```json
+{ "message": "已拒绝", "status": "declined" }
+```
+
+- **错误响应**：
+
+| 状态码 | 场景 |
+|--------|------|
+| 403 | token 未含 `assistantId` |
+| 404 | 通知不存在或不属于当前学助 |
+| 409 | 重复打卡（`confirmed` 时当前班次状态冲突） |
+| 410 | 通知已超时（有效期 5 分钟） |
+
+- **curl 示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/attendance/shift-notice/respond \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"notificationId":"uuid","response":"confirmed"}'
+```
+
+---
+
 ## 与之前的差异与注意事项
 
 - 前端约定已统一：所有客户端请求前缀改为 `/api/user/`（之前文档中的 `/api/users`、`/api/auth` 的用法已做合并/对齐）。

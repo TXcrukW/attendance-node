@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { loginAdmin, getAdminProfile, syncAccounts } = require('../controllers/adminController');
+const { loginAdmin, getAdminProfile, syncAccounts, logoutAdmin } = require('../controllers/adminController');
 const { protect } = require('../../common/middleware/authMiddleware');
 const attendanceCtrl = require('../controllers/attendanceController');
 
@@ -13,6 +13,8 @@ const adminOnly = (req, res, next) => {
 };
 
 router.post('/login', loginAdmin);
+// 登出
+router.post('/logout', protect, adminOnly, logoutAdmin);
 router.get('/profile', protect, getAdminProfile);
 // 同步删除 Accounts 表中已不存在对应学助的孤立账户
 router.post('/sync-accounts', protect, adminOnly, syncAccounts);

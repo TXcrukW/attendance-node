@@ -48,6 +48,22 @@ const getAdminProfile = async (req, res) => {
   }
 };
 
+// 管理员登出
+const logoutAdmin = async (req, res) => {
+  try {
+    const admin = await AdminUser.findByPk(req.user.id);
+    if (!admin) return res.status(404).json({ message: '管理员不存在' });
+
+    // 清除当前会话 id，使携带旧 sid 的 token 失效
+    await admin.update({ currentSessionId: null });
+
+    return res.json({ message: '已登出' });
+  } catch (err) {
+    console.error('logoutAdmin error:', err);
+    return res.status(500).json({ message: '登出失败', error: err.message });
+  }
+};
+
 // POST /api/admin/sync-accounts
 // 删除 Accounts 表中 assistantId 已不存在于 Assistants 表的孤立账户
 const syncAccounts = async (req, res) => {
@@ -89,4 +105,5 @@ module.exports = {
   loginAdmin,
   getAdminProfile,
   syncAccounts,
+  logoutAdmin,
 };

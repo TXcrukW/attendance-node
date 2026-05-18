@@ -30,4 +30,23 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { login };
+// POST /api/user/logout
+const logout = async (req, res) => {
+  try {
+    // protect middleware 应当已将 req.user 注入
+    if (!req.user) return res.status(401).json({ message: '未授权' });
+
+    const accountId = req.user.accountId || req.user.id;
+    const account = await Account.findByPk(accountId);
+    if (!account) return res.status(404).json({ message: '账户不存在' });
+
+    await account.update({ currentSessionId: null });
+
+    return res.json({ message: '已登出' });
+  } catch (err) {
+    console.error('logout error:', err);
+    return res.status(500).json({ message: '登出失败', error: err.message });
+  }
+};
+
+module.exports = { login, logout };

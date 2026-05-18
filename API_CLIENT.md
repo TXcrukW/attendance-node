@@ -67,6 +67,24 @@
 
 错误码：`400`、`401`、`500`
 
+### 2.3 `POST /api/user/logout`
+
+- 功能描述：学助登出，撤销当前会话使已签发的 token 失效。
+- 使用场景：客户端点击“退出登录”。
+- 鉴权：需要学助 token（Bearer）。
+
+请求参数：无。
+
+成功响应（200）：
+
+```json
+{ "message": "已登出" }
+```
+
+说明：该接口会将 `Account.currentSessionId` 清空，配合服务器端的 `sid` 校验逻辑使当前及旧的含 `sid` 的 JWT 失效。客户端在收到成功响应后应清除本地 token（localStorage / cookie / IndexedDB 等），并跳转到登录页。
+
+错误码：`401`（未授权或 token 无效）、`403`（无权限）、`500`（服务器错误）
+
 ### 2.2 `GET /api/user/profile`
 
 - 功能描述：获取当前登录账户信息。

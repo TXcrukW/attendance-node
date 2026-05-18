@@ -343,6 +343,8 @@ fetch('/api/assistants/import-file', {
 
 ## 管理后台需调用的接口
 
+注：管理后台应在管理端实现管理员权限的完整学助更新接口（例如 `/api/admin/assistants/:id`），负责字段校验、审计日志、变更通知以及必要的审批流程。
+
 | 功能 | 方法 | 路径 | 说明 |
 |------|------|------|------|
 | 向学助发上/下班请求 | `POST` | `/api/admin/assistants/:id/shift-notice` | **替代旧 `/api/assistants/:id/status`** |
@@ -501,6 +503,45 @@ subscribeOnlineStream(localStorage.getItem('token'), ({ data, total, serverTime 
 `status` 可能值：`pending`（待响应）、`confirmed`（已确认）、`declined`（已拒绝）、`expired`（超时作废）。
 
 ---
+
+### PATCH /api/admin/attendance/sessions/:id（人工纠正工作会话）
+
+- 描述：管理员可人工修正指定 `WorkSession` 的 `startTime` / `endTime`，并填写 `correctionNote` 作为审计说明。接口会将会话 `status` 标记为 `corrected` 并重新计算 `durationMinutes`。
+- 鉴权：需管理员 JWT。
+
+**请求体**（JSON，可选字段）：
+```json
+{ "startTime"?: "2026-05-16T08:00:00.000Z", "endTime"?: "2026-05-16T12:00:00.000Z", "correctionNote": "学助未打卡，按记录修正" }
+```
+
+**说明**：`correctionNote` 必填且不可为空；若提供 `startTime`/`endTime`，服务端将以提供的时间重新计算 `durationMinutes`，并在成功后返回更新后的会话对象。
+
+**成功响应（200）示例**：
+```json
+{
+  "message": "纠正成功",
+  "session": {
+    "id": "uuid",
+    "assistantId": "uuid",
+    "date": "2026-05-16",
+    "shiftType": "afternoon",
+    "shiftLabel": "下午班",
+    "startTime": "2026-05-16T08:00:00.000Z",
+    "endTime": "2026-05-16T12:00:00.000Z",
+    "durationMinutes": 240,
+    "hours": "4.00",
+    "status": "corrected",
+    "correctionNote": "学助未打卡，按记录修正",
+    "correctedBy": "admin-user-id"
+  }
+}
+```
+
+**错误响应**：
+- 400：缺少或空的 `correctionNote`，或 `endTime` 早于 `startTime`。
+- 404：会话不存在。
+- 500：服务器错误。
+
 
 ### GET /api/attendance/shift-notice 与 POST /api/attendance/shift-notice/respond（学助端接口）
 

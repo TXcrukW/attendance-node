@@ -10,7 +10,6 @@
 **客户端更新约束（重要）**
 
 - 客户端应用仅允许学助本人通过 `PUT /api/assistants/me` 修改自己的 **手机号** 与 **密码**；其它字段（如姓名、岗位、状态、hourlyRate、totalHours、notes 等）必须由管理后台统一维护，以避免权限混淆与重复实现。
-- 管理后台应在管理端实现管理员权限的完整学助更新接口（例如 `/api/admin/assistants/:id`），负责字段校验、审计日志、变更通知以及必要的审批流程。
 - 文档约定：前端仅集成与使用 `GET /api/assistants/:id`（只读）与 `PUT /api/assistants/me`（自我更新），所有会影响业务或权限的写操作请交由后台管理功能完成。
 
 如果需要，我可以为管理后台草拟管理员 API 规范草稿并加入到项目文档中。
@@ -362,7 +361,7 @@ curl -X GET "http://localhost:3000/api/attendance/sessions?status=auto_closed" \
 | `unconfirmedTip` | 存在自动收口时展示给学助的提示文字，`null` 表示无异常 |
 | `byDate` | 按日期汇总的数组，每个元素包含当日工时 / 班次数 / 是否含异常 |
 
-> **注意**：`auto_closed` 状态的班次工时是系统估算值（基于班次标准下班时间计算），并非实际工时，学助应联系管理员（`PATCH /api/admin/attendance/sessions/:id`）纠正后才会转为 `corrected` 状态。
+> **注意**：`auto_closed` 状态的班次工时是系统估算值（基于班次标准下班时间计算），并非实际工时，学助应联系管理员进行人工核实与纠正（详见管理员 API 文档）。
 
 - **curl 示例**：
 
